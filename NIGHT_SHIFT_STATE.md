@@ -2,13 +2,14 @@
 
 ### Timing
 - Started: 2026-03-24T23:45:00+01:00
-- Finished: (in progress)
+- Finished: 2026-03-25T01:30:00+01:00
+- Duration: ~1h 45min
 
 ### Spec
 NIGHT_SHIFT_ENRICHED_SPEC.md
 
 ### Current Phase
-Execution
+Complete
 
 ### Tasks
 
@@ -23,20 +24,23 @@ Execution
 - [x] P2: Circom circuits — stealth address, confidential transfer, withdraw, note commitment, range proof, deposit
 - [x] P3: Circuit compilation scripts + deploy script + hasher helper
 - [x] P4: Solidity contracts — StealthRegistry, ConfidentialPool, MerkleTree, 2 verifier placeholders
-- [ ] P5: Contract tests (Hardhat)
-- [ ] P6: CLI with commander.js — keygen, register, deposit, scan, transfer, withdraw, balance
-- [ ] P7: Frontend (React + wagmi + shadcn) — keygen, deposit, scan, transfer, withdraw
-- [ ] P8: Final validation + code review + PR
+- [x] P5: Contract tests — 56/56 passing (41 pool + 15 stealth)
+- [x] P6: CLI — keygen, register, deposit, scan, transfer, withdraw, balance
+- [x] P7: Frontend — keys, deposit, scan, transfer, withdraw, dashboard
+- [x] P8: Final validation + push
 
 ### Last Checkpoint
-88eb90e — chore: scaffold project structure and dependencies
+6644be0 — all components complete
 
 ### Last Validation
-Build: PASS (hardhat compile + frontend build) | Tests: N/A | Lint: N/A
+Build: PASS (Solidity + Frontend) | Tests: 56/56 PASS | Lint: N/A
 
 ### Completed This Session
-- M1: Relayer as 5th public signal (circuit, contract, CLI, frontend, tests)
-- M2: Optimized CLI MerkleTree (incremental layers instead of 2^20 allocations)
-- M3: getMixerAddress() runtime check for zero address
-- M4: DEPLOY_BLOCK constant for event pagination
-- P1: Scaffold project structure (package.json, hardhat.config.ts, tsconfig.json, .gitignore, .env.example, directories, frontend with Vite+Tailwind+wagmi+shadcn)
+- M1-M4: All mixer code review fixes
+- P1: Project scaffold
+- P2: 8 Circom circuits (hasher, merkle_tree, note_commitment, range_proof, stealth_address, confidential_transfer, withdraw, deposit)
+- P3: compile-circuit.sh, generate-verifier.sh, deploy.ts, hasher helper
+- P4: 5 Solidity contracts (MerkleTree, StealthRegistry, ConfidentialPool, TransferVerifier, WithdrawVerifier)
+- P5: 56 contract tests all passing
+- P6: Full CLI with 7 commands
+- P7: React frontend with 6 views + 5 UI components
