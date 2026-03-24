@@ -13,10 +13,10 @@ Execution
 ### Tasks
 
 #### Part 1: ZK Mixer fixes (~/Desktop/zk-mixer)
-- [ ] M1: Add relayer as 5th public signal in circuit + contract + CLI + frontend + tests
-- [ ] M2: Optimize CLI MerkleTree with incremental approach
-- [ ] M3: Add MIXER_ADDRESS zero-address runtime check in frontend
-- [ ] M4: Add event pagination in WithdrawCard.tsx
+- [x] M1: Add relayer as 5th public signal in circuit + contract + CLI + frontend + tests
+- [x] M2: Optimize CLI MerkleTree with incremental approach
+- [x] M3: Add MIXER_ADDRESS zero-address runtime check in frontend
+- [x] M4: Add event pagination in WithdrawCard.tsx
 
 #### Part 2: ZK Private Payments (~/Desktop/zk-private-payments)
 - [ ] P1: Scaffold project structure + dependencies
@@ -29,10 +29,13 @@ Execution
 - [ ] P8: Final validation + code review + PR
 
 ### Last Checkpoint
-(none)
+29e8115 — zk-mixer: all 4 code review fixes applied, 41/41 tests passing, pushed
 
 ### Last Validation
-Build: N/A | Tests: N/A | Lint: N/A
+Build: PASS | Tests: 41/41 PASS | Lint: N/A
 
 ### Completed This Session
-(none yet)
+- M1: Relayer as 5th public signal (circuit, contract, CLI, frontend, tests)
+- M2: Optimized CLI MerkleTree (incremental layers instead of 2^20 allocations)
+- M3: getMixerAddress() runtime check for zero address
+- M4: DEPLOY_BLOCK constant for event pagination
