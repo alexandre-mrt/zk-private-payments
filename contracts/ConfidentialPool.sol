@@ -2,6 +2,9 @@
 pragma solidity ^0.8.20;
 
 import "./MerkleTree.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 interface ITransferVerifier {
     function verifyProof(
@@ -21,7 +24,7 @@ interface IWithdrawVerifier {
     ) external view returns (bool);
 }
 
-contract ConfidentialPool is MerkleTree {
+contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     ITransferVerifier public immutable transferVerifier;
     IWithdrawVerifier public immutable withdrawVerifier;
 
@@ -51,16 +54,22 @@ contract ConfidentialPool is MerkleTree {
         address _withdrawVerifier,
         uint32 _merkleTreeHeight,
         address _hasher
-    ) MerkleTree(_merkleTreeHeight, _hasher) {
+    ) MerkleTree(_merkleTreeHeight, _hasher) Ownable(msg.sender) {
         require(_transferVerifier != address(0), "ConfidentialPool: zero transfer verifier");
         require(_withdrawVerifier != address(0), "ConfidentialPool: zero withdraw verifier");
         transferVerifier = ITransferVerifier(_transferVerifier);
         withdrawVerifier = IWithdrawVerifier(_withdrawVerifier);
     }
 
+    /// @notice Pause the pool — only owner, for emergency use
+    function pause() external onlyOwner { _pause(); }
+
+    /// @notice Unpause the pool — only owner
+    function unpause() external onlyOwner { _unpause(); }
+
     /// @notice Deposit ETH and create a note commitment
     /// @param _commitment Poseidon(amount, blinding, ownerPubKeyX)
-    function deposit(uint256 _commitment) external payable {
+    function deposit(uint256 _commitment) external payable nonReentrant whenNotPaused {
         require(msg.value > 0, "ConfidentialPool: zero deposit");
         require(_commitment != 0, "ConfidentialPool: zero commitment");
         require(_commitment < FIELD_SIZE, "ConfidentialPool: commitment >= field size");
@@ -81,7 +90,7 @@ contract ConfidentialPool is MerkleTree {
         uint256 _nullifier,
         uint256 _outputCommitment1,
         uint256 _outputCommitment2
-    ) external {
+    ) external nonReentrant whenNotPaused {
         require(!nullifiers[_nullifier], "ConfidentialPool: nullifier already spent");
         require(isKnownRoot(_root), "ConfidentialPool: unknown root");
         require(
@@ -126,7 +135,7 @@ contract ConfidentialPool is MerkleTree {
         uint256 _amount,
         address payable _recipient,
         uint256 _changeCommitment
-    ) external {
+    ) external nonReentrant whenNotPaused {
         require(!nullifiers[_nullifier], "ConfidentialPool: nullifier already spent");
         require(isKnownRoot(_root), "ConfidentialPool: unknown root");
         require(_recipient != address(0), "ConfidentialPool: zero recipient");
