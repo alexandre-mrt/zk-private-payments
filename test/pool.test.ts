@@ -1431,4 +1431,52 @@ describe("ConfidentialPool", function () {
       expect(lastDepositBlock).to.be.greaterThan(blockBefore);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Root History
+  // -------------------------------------------------------------------------
+
+  describe("Root History", function () {
+    it("getRootHistory returns array of length ROOT_HISTORY_SIZE (30)", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const history = await pool.getRootHistory();
+      expect(history.length).to.equal(30);
+    });
+
+    it("getRootHistory first slot is the initial non-zero root", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const history = await pool.getRootHistory();
+      const lastRoot = await pool.getLastRoot();
+      expect(history[0]).to.equal(lastRoot);
+    });
+
+    it("getValidRootCount is 1 before any deposit (only initial root)", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.getValidRootCount()).to.equal(1);
+    });
+
+    it("after 1 deposit, getRootHistory contains at least 2 non-zero entries", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      const history = await pool.getRootHistory();
+      const nonZero = history.filter((r) => r !== 0n);
+      expect(nonZero.length).to.be.at.least(2);
+    });
+
+    it("getValidRootCount increases after each deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const countBefore = await pool.getValidRootCount();
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      const countAfter = await pool.getValidRootCount();
+      expect(countAfter).to.be.greaterThan(countBefore);
+    });
+
+    it("most recent root in getRootHistory matches getLastRoot after deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      const lastRoot = await pool.getLastRoot();
+      const history = await pool.getRootHistory();
+      expect(history.some((r) => r === lastRoot)).to.be.true;
+    });
+  });
 });
