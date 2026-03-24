@@ -107,7 +107,9 @@ export async function deriveSharedSecret(
   };
 }
 
-// Derive ephemeral keypair and stealth pubkey for an announcement
+// Derive ephemeral keypair and stealth pubkey for an announcement.
+// Also returns the raw ECDH shared point (before Poseidon hashing) so
+// the caller can pass it to encryptNoteData without recomputing.
 export async function deriveStealthKeypair(
   recipientViewingPubKeyX: bigint,
   recipientViewingPubKeyY: bigint
@@ -117,6 +119,8 @@ export async function deriveStealthKeypair(
   ephemeralPubKeyY: bigint;
   stealthPubKeyX: bigint;
   stealthPubKeyY: bigint;
+  sharedPointX: bigint;
+  sharedPointY: bigint;
 }> {
   const babyjub = await buildBabyjub();
   const poseidon = await buildPoseidon();
@@ -137,7 +141,9 @@ export async function deriveStealthKeypair(
     F.e(recipientViewingPubKeyY),
   ];
   const sharedPoint = babyjub.mulPointEscalar(recipientPoint, ephemeralPrivKey);
-  const sharedX = poseidon.F.toObject(poseidon([F.toObject(sharedPoint[0])]));
+  const sharedPointX: bigint = F.toObject(sharedPoint[0]);
+  const sharedPointY: bigint = F.toObject(sharedPoint[1]);
+  const sharedX = poseidon.F.toObject(poseidon([sharedPointX]));
 
   // Stealth pubkey = sharedX * G + recipientViewingPubKey
   const sharedBase = babyjub.mulPointEscalar(babyjub.Base8, sharedX);
@@ -151,5 +157,53 @@ export async function deriveStealthKeypair(
     ephemeralPubKeyY,
     stealthPubKeyX,
     stealthPubKeyY,
+    sharedPointX,
+    sharedPointY,
   };
+}
+
+// Maximum uint64 value — amounts are capped to 64 bits (covers all practical ETH amounts in wei)
+const UINT64_MASK = (1n << 64n) - 1n;
+
+// Derive the XOR encryption key from the ECDH shared point.
+// key = Poseidon(sharedPoint.x, sharedPoint.y)
+async function deriveEncryptionKey(sharedPointX: bigint, sharedPointY: bigint): Promise<bigint> {
+  const poseidon = await buildPoseidon();
+  return poseidon.F.toObject(poseidon([sharedPointX, sharedPointY]));
+}
+
+// Encrypt note data for on-chain broadcast using the ECDH shared point.
+// The receiver derives the same shared point via viewingKey * ephemeralPubKey.
+//
+//   key               = Poseidon(sharedPoint.x, sharedPoint.y)
+//   encryptedAmount   = amount   XOR (key AND UINT64_MASK)
+//   encryptedBlinding = blinding XOR key
+export async function encryptNoteData(
+  amount: bigint,
+  blinding: bigint,
+  sharedPointX: bigint,
+  sharedPointY: bigint
+): Promise<{ encryptedAmount: bigint; encryptedBlinding: bigint }> {
+  const key = await deriveEncryptionKey(sharedPointX, sharedPointY);
+  const encryptedAmount = amount ^ (key & UINT64_MASK);
+  const encryptedBlinding = blinding ^ key;
+  return { encryptedAmount, encryptedBlinding };
+}
+
+// Decrypt note data received from a StealthPayment event.
+// XOR is its own inverse — decryption is identical to encryption.
+//
+//   key      = Poseidon(sharedPoint.x, sharedPoint.y)
+//   amount   = encryptedAmount   XOR (key AND UINT64_MASK)
+//   blinding = encryptedBlinding XOR key
+export async function decryptNoteData(
+  encryptedAmount: bigint,
+  encryptedBlinding: bigint,
+  sharedPointX: bigint,
+  sharedPointY: bigint
+): Promise<{ amount: bigint; blinding: bigint }> {
+  const key = await deriveEncryptionKey(sharedPointX, sharedPointY);
+  const amount = encryptedAmount ^ (key & UINT64_MASK);
+  const blinding = encryptedBlinding ^ key;
+  return { amount, blinding };
 }

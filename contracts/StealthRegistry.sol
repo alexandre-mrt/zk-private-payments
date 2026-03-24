@@ -50,18 +50,30 @@ contract StealthRegistry {
 
     /// @notice Emitted when a sender announces a stealth payment
     /// @dev Listeners scan this event and check each announcement with their viewing key
-    ///      to discover notes intended for them.
-    /// @param commitment       Poseidon commitment of the deposited note (indexed for filtering)
-    /// @param ephemeralPubKeyX X coordinate of the sender's ephemeral BabyJubjub public key
-    /// @param ephemeralPubKeyY Y coordinate of the sender's ephemeral BabyJubjub public key
-    /// @param stealthPubKeyX   X coordinate of the recipient's one-time stealth public key
-    /// @param stealthPubKeyY   Y coordinate of the recipient's one-time stealth public key
+    ///      to discover notes intended for them. The encrypted note data allows the receiver
+    ///      to reconstruct the note without off-chain communication.
+    ///
+    ///      Encryption scheme (XOR with Poseidon-derived key):
+    ///        sharedPoint = ephemeralPrivKey * viewingPubKey  (= viewingKey * ephemeralPubKey)
+    ///        key         = Poseidon(sharedPoint.x, sharedPoint.y)
+    ///        encryptedAmount   = amount   XOR key[0..8]   (amount fits in 8 bytes / 64 bits)
+    ///        encryptedBlinding = blinding XOR key
+    ///
+    /// @param commitment        Poseidon commitment of the deposited note (indexed for filtering)
+    /// @param ephemeralPubKeyX  X coordinate of the sender's ephemeral BabyJubjub public key
+    /// @param ephemeralPubKeyY  Y coordinate of the sender's ephemeral BabyJubjub public key
+    /// @param stealthPubKeyX    X coordinate of the recipient's one-time stealth public key
+    /// @param stealthPubKeyY    Y coordinate of the recipient's one-time stealth public key
+    /// @param encryptedAmount   Amount XOR-encrypted with the Poseidon-derived shared key
+    /// @param encryptedBlinding Blinding factor XOR-encrypted with the Poseidon-derived shared key
     event StealthPayment(
         uint256 indexed commitment,
         uint256 ephemeralPubKeyX,
         uint256 ephemeralPubKeyY,
         uint256 stealthPubKeyX,
-        uint256 stealthPubKeyY
+        uint256 stealthPubKeyY,
+        uint256 encryptedAmount,
+        uint256 encryptedBlinding
     );
 
     /// @notice Registers or updates the caller's BabyJubjub viewing public key
@@ -93,24 +105,35 @@ contract StealthRegistry {
     ///          sharedSecret = Poseidon(viewingKey · ephemeralPubKey)
     ///          derivedStealth = spendingPubKey + sharedSecret · G
     ///      If `derivedStealth == (stealthPubKeyX, stealthPubKeyY)`, the note belongs to them.
-    /// @param _commitment       Poseidon commitment of the note deposited in ConfidentialPool
-    /// @param _ephemeralPubKeyX X coordinate of the sender's ephemeral BabyJubjub public key
-    /// @param _ephemeralPubKeyY Y coordinate of the sender's ephemeral BabyJubjub public key
-    /// @param _stealthPubKeyX   X coordinate of the recipient's one-time stealth public key
-    /// @param _stealthPubKeyY   Y coordinate of the recipient's one-time stealth public key
+    ///      Once matched, the receiver decrypts the note data:
+    ///          sharedPoint = viewingKey * ephemeralPubKey
+    ///          key         = Poseidon(sharedPoint.x, sharedPoint.y)
+    ///          amount      = encryptedAmount   XOR key[0..8]
+    ///          blinding    = encryptedBlinding XOR key
+    /// @param _commitment        Poseidon commitment of the note deposited in ConfidentialPool
+    /// @param _ephemeralPubKeyX  X coordinate of the sender's ephemeral BabyJubjub public key
+    /// @param _ephemeralPubKeyY  Y coordinate of the sender's ephemeral BabyJubjub public key
+    /// @param _stealthPubKeyX    X coordinate of the recipient's one-time stealth public key
+    /// @param _stealthPubKeyY    Y coordinate of the recipient's one-time stealth public key
+    /// @param _encryptedAmount   Amount XOR-encrypted with the Poseidon-derived shared key
+    /// @param _encryptedBlinding Blinding factor XOR-encrypted with the Poseidon-derived shared key
     function announceStealthPayment(
         uint256 _commitment,
         uint256 _ephemeralPubKeyX,
         uint256 _ephemeralPubKeyY,
         uint256 _stealthPubKeyX,
-        uint256 _stealthPubKeyY
+        uint256 _stealthPubKeyY,
+        uint256 _encryptedAmount,
+        uint256 _encryptedBlinding
     ) external {
         emit StealthPayment(
             _commitment,
             _ephemeralPubKeyX,
             _ephemeralPubKeyY,
             _stealthPubKeyX,
-            _stealthPubKeyY
+            _stealthPubKeyY,
+            _encryptedAmount,
+            _encryptedBlinding
         );
     }
 }

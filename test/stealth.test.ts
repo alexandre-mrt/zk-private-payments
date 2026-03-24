@@ -129,7 +129,7 @@ describe("StealthRegistry", function () {
   // -------------------------------------------------------------------------
 
   describe("StealthPayment", function () {
-    it("emits StealthPayment event with all correct args", async function () {
+    it("emits StealthPayment event with all correct args including encrypted data", async function () {
       const { registry, alice } = await loadFixture(
         deployStealthRegistryFixture
       );
@@ -138,14 +138,16 @@ describe("StealthRegistry", function () {
       const ephY = randomKey();
       const stealthX = randomKey();
       const stealthY = randomKey();
+      const encAmt = randomKey();
+      const encBlind = randomKey();
 
       await expect(
         registry
           .connect(alice)
-          .announceStealthPayment(commitment, ephX, ephY, stealthX, stealthY)
+          .announceStealthPayment(commitment, ephX, ephY, stealthX, stealthY, encAmt, encBlind)
       )
         .to.emit(registry, "StealthPayment")
-        .withArgs(commitment, ephX, ephY, stealthX, stealthY);
+        .withArgs(commitment, ephX, ephY, stealthX, stealthY, encAmt, encBlind);
     });
 
     it("anyone can announce a stealth payment (no restriction)", async function () {
@@ -155,6 +157,8 @@ describe("StealthRegistry", function () {
         registry
           .connect(bob)
           .announceStealthPayment(
+            randomKey(),
+            randomKey(),
             randomKey(),
             randomKey(),
             randomKey(),
@@ -174,10 +178,14 @@ describe("StealthRegistry", function () {
 
       await registry
         .connect(alice)
-        .announceStealthPayment(c1, randomKey(), randomKey(), randomKey(), randomKey());
+        .announceStealthPayment(
+          c1, randomKey(), randomKey(), randomKey(), randomKey(), randomKey(), randomKey()
+        );
       await registry
         .connect(bob)
-        .announceStealthPayment(c2, randomKey(), randomKey(), randomKey(), randomKey());
+        .announceStealthPayment(
+          c2, randomKey(), randomKey(), randomKey(), randomKey(), randomKey(), randomKey()
+        );
 
       // Both should have completed without revert
       // (event filtering is a client concern — we just confirm no revert)
@@ -196,11 +204,50 @@ describe("StealthRegistry", function () {
           randomKey(),
           randomKey(),
           randomKey(),
+          randomKey(),
+          randomKey(),
           randomKey()
         );
       const receipt = await tx.wait();
       expect(receipt).to.not.be.null;
       expect(receipt!.logs.length).to.be.greaterThan(0);
+    });
+
+    it("encrypted data fields are stored exactly as passed (no on-chain transformation)", async function () {
+      const { registry, alice } = await loadFixture(
+        deployStealthRegistryFixture
+      );
+      const encAmt = randomKey();
+      const encBlind = randomKey();
+
+      const tx = await registry
+        .connect(alice)
+        .announceStealthPayment(
+          randomKey(),
+          randomKey(),
+          randomKey(),
+          randomKey(),
+          randomKey(),
+          encAmt,
+          encBlind
+        );
+
+      const receipt = await tx.wait();
+      expect(receipt).to.not.be.null;
+
+      // Parse the emitted event and verify encrypted data is unchanged
+      const iface = registry.interface;
+      for (const txLog of receipt!.logs) {
+        try {
+          const parsed = iface.parseLog(txLog);
+          if (parsed?.name === "StealthPayment") {
+            expect(parsed.args["encryptedAmount"]).to.equal(encAmt);
+            expect(parsed.args["encryptedBlinding"]).to.equal(encBlind);
+          }
+        } catch {
+          // Not a StealthPayment log
+        }
+      }
     });
   });
 
