@@ -33,6 +33,11 @@ export interface PoolStats {
   poolBalance: bigint;
 }
 
+type CacheEntry<T> = {
+  data: T;
+  timestamp: number;
+};
+
 // Minimal ABI for event querying — matches ConfidentialPool.sol exactly
 const POOL_EVENTS_ABI = [
   "event Deposit(uint256 indexed commitment, uint32 leafIndex, uint256 amount, uint256 timestamp)",
@@ -40,21 +45,65 @@ const POOL_EVENTS_ABI = [
   "event Withdrawal(uint256 indexed nullifier, uint256 amount, address recipient, uint256 changeCommitment)",
 ] as const;
 
+const CACHE_KEY_DEPOSITS = "deposits";
+const CACHE_KEY_TRANSFERS = "transfers";
+const CACHE_KEY_WITHDRAWALS = "withdrawals";
+
 export class EventIndexer {
   private readonly contract: ethers.Contract;
   private readonly provider: ethers.Provider;
-  private readonly fromBlock: number;
+  private fromBlock: number;
+  private readonly cache: Map<string, CacheEntry<unknown>> = new Map();
+  private readonly cacheTTL: number;
 
-  constructor(poolAddress: string, provider: ethers.Provider, fromBlock = 0) {
+  constructor(
+    poolAddress: string,
+    provider: ethers.Provider,
+    fromBlock = 0,
+    cacheTTLMs = 30_000,
+  ) {
     this.contract = new ethers.Contract(poolAddress, POOL_EVENTS_ABI, provider);
     this.provider = provider;
     this.fromBlock = fromBlock;
+    this.cacheTTL = cacheTTLMs;
+  }
+
+  private getCached<T>(key: string): T | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > this.cacheTTL) {
+      this.cache.delete(key);
+      return null;
+    }
+    return entry.data as T;
+  }
+
+  private setCache<T>(key: string, data: T): void {
+    this.cache.set(key, { data, timestamp: Date.now() });
+  }
+
+  clearCache(): void {
+    this.cache.clear();
+  }
+
+  async getLatestBlock(): Promise<number> {
+    return this.provider.getBlockNumber();
+  }
+
+  // Update the starting block for future queries and clear the cache so that
+  // the next call fetches from the new block onward.
+  refreshFromBlock(block: number): void {
+    this.fromBlock = block;
+    this.clearCache();
   }
 
   async getDeposits(): Promise<DepositEvent[]> {
+    const cached = this.getCached<DepositEvent[]>(CACHE_KEY_DEPOSITS);
+    if (cached) return cached;
+
     const filter = this.contract.filters.Deposit();
     const events = await this.contract.queryFilter(filter, this.fromBlock);
-    return events.map((e) => {
+    const result = events.map((e) => {
       const log = this.contract.interface.parseLog(e);
       if (!log) throw new Error("Failed to parse Deposit event");
       return {
@@ -66,12 +115,18 @@ export class EventIndexer {
         txHash: e.transactionHash,
       };
     });
+
+    this.setCache(CACHE_KEY_DEPOSITS, result);
+    return result;
   }
 
   async getTransfers(): Promise<TransferEvent[]> {
+    const cached = this.getCached<TransferEvent[]>(CACHE_KEY_TRANSFERS);
+    if (cached) return cached;
+
     const filter = this.contract.filters.Transfer();
     const events = await this.contract.queryFilter(filter, this.fromBlock);
-    return events.map((e) => {
+    const result = events.map((e) => {
       const log = this.contract.interface.parseLog(e);
       if (!log) throw new Error("Failed to parse Transfer event");
       return {
@@ -82,12 +137,18 @@ export class EventIndexer {
         txHash: e.transactionHash,
       };
     });
+
+    this.setCache(CACHE_KEY_TRANSFERS, result);
+    return result;
   }
 
   async getWithdrawals(): Promise<WithdrawalEvent[]> {
+    const cached = this.getCached<WithdrawalEvent[]>(CACHE_KEY_WITHDRAWALS);
+    if (cached) return cached;
+
     const filter = this.contract.filters.Withdrawal();
     const events = await this.contract.queryFilter(filter, this.fromBlock);
-    return events.map((e) => {
+    const result = events.map((e) => {
       const log = this.contract.interface.parseLog(e);
       if (!log) throw new Error("Failed to parse Withdrawal event");
       return {
@@ -99,6 +160,9 @@ export class EventIndexer {
         txHash: e.transactionHash,
       };
     });
+
+    this.setCache(CACHE_KEY_WITHDRAWALS, result);
+    return result;
   }
 
   // Get all commitments in Merkle tree insertion order.
