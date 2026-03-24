@@ -89,8 +89,8 @@ export function registerWithdraw(program: Command): void {
           const recipientBigInt = BigInt(opts.to);
 
           console.log("Generating ZK proof...");
-          const wasmPath = path.join(CLI_DIRS.circuits, "withdraw.wasm");
-          const zkeyPath = path.join(CLI_DIRS.circuits, "withdraw.zkey");
+          const wasmPath = path.join(CLI_DIRS.circuits, "withdraw", "withdraw_js", "withdraw.wasm");
+          const zkeyPath = path.join(CLI_DIRS.circuits, "withdraw", "withdraw_final.zkey");
 
           const input = {
             root: root.toString(),

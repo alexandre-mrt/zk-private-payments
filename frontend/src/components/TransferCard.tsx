@@ -139,14 +139,12 @@ export function TransferCard() {
         sendAmountWei,
         outBlinding1,
         recipPubX,
-        recipPubY,
       );
 
       const outCommitment2 = await computeCommitment(
         changeAmount,
         outBlinding2,
         keypair.spendingPubX,
-        keypair.spendingPubY,
       );
 
       const nullifier = await computeNullifier(
@@ -187,19 +185,18 @@ export function TransferCard() {
       const proof = await generateTransferProof({
         root: merkleProof.root,
         nullifier,
-        outCommitment1,
-        outCommitment2,
-        amount: selectedNote.amount,
-        blinding: selectedNote.blinding,
+        outputCommitment1: outCommitment1,
+        outputCommitment2: outCommitment2,
+        amountIn: selectedNote.amount,
+        blindingIn: selectedNote.blinding,
+        ownerPubKeyXIn: keypair.spendingPubX,
         spendingKey: keypair.spendingKey,
-        outAmount1: sendAmountWei,
-        outBlinding1,
-        outRecipientPubX: recipPubX,
-        outRecipientPubY: recipPubY,
-        outAmount2: changeAmount,
-        outBlinding2,
-        outChangePubX: keypair.spendingPubX,
-        outChangePubY: keypair.spendingPubY,
+        amountOut1: sendAmountWei,
+        blindingOut1: outBlinding1,
+        ownerPubKeyXOut1: recipPubX,
+        amountOut2: changeAmount,
+        blindingOut2: outBlinding2,
+        ownerPubKeyXOut2: keypair.spendingPubX,
         pathElements: merkleProof.pathElements,
         pathIndices: merkleProof.pathIndices,
       });

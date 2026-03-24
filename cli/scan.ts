@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { ethers } from "ethers";
 import { deriveSharedSecret } from "./crypto.js";
-import { buildPoseidon } from "circomlibjs";
+import { buildPoseidon, buildBabyjub } from "circomlibjs";
 import {
   getProvider,
   getStealthRegistry,
@@ -36,6 +36,8 @@ export function registerScan(program: Command): void {
 
         const poseidon = await buildPoseidon();
         const pF = poseidon.F;
+        const babyjub = await buildBabyjub();
+        const bjF = babyjub.F;
 
         let stealthFound = 0;
         for (const event of stealthEvents) {
@@ -47,16 +49,22 @@ export function registerScan(program: Command): void {
           const stealthPubKeyX = BigInt(log.args["stealthPubKeyX"].toString());
           const commitment = BigInt(log.args["commitment"].toString());
 
-          // Derive shared secret using viewing key
+          // Full stealth address derivation:
+          // 1. sharedSecret = viewingKey * ephemeralPubKey
           const shared = await deriveSharedSecret(keys.viewingKey, ephPubKeyX, ephPubKeyY);
-          const sharedX = pF.toObject(poseidon([shared.x]));
+          // 2. stealthScalar = Poseidon(sharedSecret.x)
+          const stealthScalar = pF.toObject(poseidon([shared.x]));
+          // 3. stealthPoint = stealthScalar * G + spendingPubKey
+          const scalarG = babyjub.mulPointEscalar(babyjub.Base8, stealthScalar);
+          const spendPoint: [unknown, unknown] = [
+            bjF.e(keys.spendingPubKey.x),
+            bjF.e(keys.spendingPubKey.y),
+          ];
+          const derivedStealth = babyjub.addPoint(scalarG, spendPoint);
+          const derivedX = bjF.toObject(derivedStealth[0]);
 
-          // If the stealthPubKeyX matches, the payment is for us
-          // NIGHT-SHIFT-REVIEW: Stealth address matching logic — we check if the
-          // derived stealthPubKeyX equals the announced one. The full check would
-          // require knowing the recipient base pubkey to recompute the stealth point.
-          // For now we scan all announcements and attempt note correlation below.
-          if (stealthPubKeyX === keys.spendingPubKey.x) {
+          // Compare derived stealth X with announced stealth X
+          if (derivedX === stealthPubKeyX) {
             console.log(
               `  [STEALTH] Found matching stealth payment, commitment: ${commitment}`
             );

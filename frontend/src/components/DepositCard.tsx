@@ -72,7 +72,6 @@ export function DepositCard() {
         amountBigInt,
         keypair.spendingKey,
         keypair.spendingPubX,
-        keypair.spendingPubY,
         placeholderLeafIndex,
       );
 

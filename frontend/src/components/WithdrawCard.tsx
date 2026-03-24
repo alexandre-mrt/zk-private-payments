@@ -134,7 +134,6 @@ export function WithdrawCard() {
         changeAmount,
         changeBlinding,
         keypair.spendingPubX,
-        keypair.spendingPubY,
       );
 
       const nullifier = await computeNullifier(
@@ -180,12 +179,13 @@ export function WithdrawCard() {
         amount: withdrawAmountWei,
         recipient: recipientBigInt,
         changeCommitment,
-        blinding: selectedNote.blinding,
+        amountIn: selectedNote.amount,
+        blindingIn: selectedNote.blinding,
+        ownerPubKeyXIn: keypair.spendingPubX,
         spendingKey: keypair.spendingKey,
         changeAmount,
         changeBlinding,
-        changePubX: keypair.spendingPubX,
-        changePubY: keypair.spendingPubY,
+        changeOwnerPubKeyX: keypair.spendingPubX,
         pathElements: merkleProof.pathElements,
         pathIndices: merkleProof.pathIndices,
       });

@@ -6,40 +6,49 @@ export type ProofForContract = {
   pC: [bigint, bigint];
 };
 
+// Matches confidential_transfer.circom signal names exactly
 export type TransferProofInput = {
+  // Public
   root: bigint;
   nullifier: bigint;
-  outCommitment1: bigint;
-  outCommitment2: bigint;
-  amount: bigint;
-  blinding: bigint;
+  outputCommitment1: bigint;
+  outputCommitment2: bigint;
+  // Private — input note
+  amountIn: bigint;
+  blindingIn: bigint;
+  ownerPubKeyXIn: bigint;
   spendingKey: bigint;
-  outAmount1: bigint;
-  outBlinding1: bigint;
-  outRecipientPubX: bigint;
-  outRecipientPubY: bigint;
-  outAmount2: bigint;
-  outBlinding2: bigint;
-  outChangePubX: bigint;
-  outChangePubY: bigint;
   pathElements: bigint[];
   pathIndices: number[];
+  // Private — output note 1
+  amountOut1: bigint;
+  blindingOut1: bigint;
+  ownerPubKeyXOut1: bigint;
+  // Private — output note 2 (change)
+  amountOut2: bigint;
+  blindingOut2: bigint;
+  ownerPubKeyXOut2: bigint;
 };
 
+// Matches withdraw.circom signal names exactly
 export type WithdrawProofInput = {
+  // Public
   root: bigint;
   nullifier: bigint;
   amount: bigint;
   recipient: bigint;
   changeCommitment: bigint;
-  blinding: bigint;
+  // Private — input note
+  amountIn: bigint;
+  blindingIn: bigint;
+  ownerPubKeyXIn: bigint;
   spendingKey: bigint;
-  changeAmount: bigint;
-  changeBlinding: bigint;
-  changePubX: bigint;
-  changePubY: bigint;
   pathElements: bigint[];
   pathIndices: number[];
+  // Private — change note
+  changeAmount: bigint;
+  changeBlinding: bigint;
+  changeOwnerPubKeyX: bigint;
 };
 
 type SnarkProof = {
@@ -51,7 +60,6 @@ type SnarkProof = {
 };
 
 function formatProofForContract(proof: SnarkProof): ProofForContract {
-  // pB is transposed for EVM — groth16 spec
   return {
     pA: [BigInt(proof.pi_a[0]), BigInt(proof.pi_a[1])],
     pB: [
@@ -62,59 +70,73 @@ function formatProofForContract(proof: SnarkProof): ProofForContract {
   };
 }
 
-// NIGHT-SHIFT-REVIEW: WASM and zkey files must be placed in frontend/public/circuits/ after circuit compilation
+function toStringInput(input: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === "bigint") {
+      result[key] = value.toString();
+    } else if (Array.isArray(value)) {
+      result[key] = value.map((v) => (typeof v === "bigint" ? v.toString() : v));
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+// Circuit artifacts: build/circuits/<name>/<name>_js/<name>.wasm
+// For frontend: place in public/circuits/
 export async function generateTransferProof(
   input: TransferProofInput,
 ): Promise<ProofForContract> {
-  const wasmPath = "/circuits/transfer.wasm";
-  const zkeyPath = "/circuits/transfer_final.zkey";
+  const wasmPath = "/circuits/confidential_transfer/confidential_transfer_js/confidential_transfer.wasm";
+  const zkeyPath = "/circuits/confidential_transfer/confidential_transfer_final.zkey";
 
-  const circuitInput = {
-    root: input.root.toString(),
-    nullifier: input.nullifier.toString(),
-    outCommitment1: input.outCommitment1.toString(),
-    outCommitment2: input.outCommitment2.toString(),
-    amount: input.amount.toString(),
-    blinding: input.blinding.toString(),
-    spendingKey: input.spendingKey.toString(),
-    outAmount1: input.outAmount1.toString(),
-    outBlinding1: input.outBlinding1.toString(),
-    outRecipientPubX: input.outRecipientPubX.toString(),
-    outRecipientPubY: input.outRecipientPubY.toString(),
-    outAmount2: input.outAmount2.toString(),
-    outBlinding2: input.outBlinding2.toString(),
-    outChangePubX: input.outChangePubX.toString(),
-    outChangePubY: input.outChangePubY.toString(),
-    pathElements: input.pathElements.map((e) => e.toString()),
+  const circuitInput = toStringInput({
+    root: input.root,
+    nullifier: input.nullifier,
+    outputCommitment1: input.outputCommitment1,
+    outputCommitment2: input.outputCommitment2,
+    amountIn: input.amountIn,
+    blindingIn: input.blindingIn,
+    ownerPubKeyXIn: input.ownerPubKeyXIn,
+    spendingKey: input.spendingKey,
+    pathElements: input.pathElements,
     pathIndices: input.pathIndices,
-  };
+    amountOut1: input.amountOut1,
+    blindingOut1: input.blindingOut1,
+    ownerPubKeyXOut1: input.ownerPubKeyXOut1,
+    amountOut2: input.amountOut2,
+    blindingOut2: input.blindingOut2,
+    ownerPubKeyXOut2: input.ownerPubKeyXOut2,
+  });
 
   const result = await snarkjs.groth16.fullProve(circuitInput, wasmPath, zkeyPath);
   return formatProofForContract(result.proof);
 }
 
-// NIGHT-SHIFT-REVIEW: WASM and zkey files must be placed in frontend/public/circuits/ after circuit compilation
 export async function generateWithdrawProof(
   input: WithdrawProofInput,
 ): Promise<ProofForContract> {
-  const wasmPath = "/circuits/withdraw.wasm";
-  const zkeyPath = "/circuits/withdraw_final.zkey";
+  const wasmPath = "/circuits/withdraw/withdraw_js/withdraw.wasm";
+  const zkeyPath = "/circuits/withdraw/withdraw_final.zkey";
 
-  const circuitInput = {
-    root: input.root.toString(),
-    nullifier: input.nullifier.toString(),
-    amount: input.amount.toString(),
-    recipient: input.recipient.toString(),
-    changeCommitment: input.changeCommitment.toString(),
-    blinding: input.blinding.toString(),
-    spendingKey: input.spendingKey.toString(),
-    changeAmount: input.changeAmount.toString(),
-    changeBlinding: input.changeBlinding.toString(),
-    changePubX: input.changePubX.toString(),
-    changePubY: input.changePubY.toString(),
-    pathElements: input.pathElements.map((e) => e.toString()),
+  const circuitInput = toStringInput({
+    root: input.root,
+    nullifier: input.nullifier,
+    amount: input.amount,
+    recipient: input.recipient,
+    changeCommitment: input.changeCommitment,
+    amountIn: input.amountIn,
+    blindingIn: input.blindingIn,
+    ownerPubKeyXIn: input.ownerPubKeyXIn,
+    spendingKey: input.spendingKey,
+    pathElements: input.pathElements,
     pathIndices: input.pathIndices,
-  };
+    changeAmount: input.changeAmount,
+    changeBlinding: input.changeBlinding,
+    changeOwnerPubKeyX: input.changeOwnerPubKeyX,
+  });
 
   const result = await snarkjs.groth16.fullProve(circuitInput, wasmPath, zkeyPath);
   return formatProofForContract(result.proof);

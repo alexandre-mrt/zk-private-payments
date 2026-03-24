@@ -141,14 +141,15 @@ export function parseKeypairString(s: string): Pick<Keypair, "spendingKey" | "vi
 
 // --- Note / Commitment ---
 
+// Matches circuit: NoteCommitment = Poseidon(amount, blinding, ownerPubKeyX)
+// Only X coordinate — 3 inputs, NOT 4
 export async function computeCommitment(
   amount: bigint,
   blinding: bigint,
-  ownerPubX: bigint,
-  ownerPubY: bigint,
+  ownerPubKeyX: bigint,
 ): Promise<bigint> {
   const poseidon = await getPoseidon();
-  const raw = poseidon([amount, blinding, ownerPubX, ownerPubY]);
+  const raw = poseidon([amount, blinding, ownerPubKeyX]);
   return poseidon.F.toObject(raw);
 }
 
@@ -184,11 +185,10 @@ export async function createNote(
   amount: bigint,
   spendingKey: bigint,
   spendingPubX: bigint,
-  spendingPubY: bigint,
   leafIndex: number,
 ): Promise<Note> {
   const blinding = randomFieldElement();
-  const commitment = await computeCommitment(amount, blinding, spendingPubX, spendingPubY);
+  const commitment = await computeCommitment(amount, blinding, spendingPubX);
   const nullifier = await computeNullifier(commitment, spendingKey);
   const noteString = serializeNote(amount, blinding, spendingKey, leafIndex);
   return { amount, blinding, spendingKey, commitment, nullifier, leafIndex, noteString };

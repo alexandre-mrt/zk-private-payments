@@ -87,8 +87,8 @@ export function registerTransfer(program: Command): void {
           const outNote2 = await createNote(amountOut2, keys.spendingPubKey.x);
 
           console.log("Generating ZK proof...");
-          const wasmPath = path.join(CLI_DIRS.circuits, "confidential_transfer.wasm");
-          const zkeyPath = path.join(CLI_DIRS.circuits, "confidential_transfer.zkey");
+          const wasmPath = path.join(CLI_DIRS.circuits, "confidential_transfer", "confidential_transfer_js", "confidential_transfer.wasm");
+          const zkeyPath = path.join(CLI_DIRS.circuits, "confidential_transfer", "confidential_transfer_final.zkey");
 
           const input = {
             root: root.toString(),
