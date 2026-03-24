@@ -116,6 +116,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @dev When set to 0, no per-transaction cap is enforced.
     uint256 public maxWithdrawAmount;
 
+    /// @notice Block number of the most recent deposit (single or batch)
+    /// @dev Updated on every deposit call. Used to enforce the minimum deposit age.
+    uint256 public lastDepositBlock;
+
+    /// @notice Minimum number of blocks that must elapse after the last deposit before any withdrawal is allowed
+    /// @dev When set to 0 (default), the restriction is disabled. Prevents flash-in / flash-out attacks.
+    uint256 public minDepositAge;
+
     /// @notice Whether the depositor allowlist is active
     /// @dev When false (default), any address may deposit. When true, only allowlisted addresses may deposit.
     bool public allowlistEnabled;
@@ -179,6 +187,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @param amount  ETH amount in wei transferred
     event EmergencyDrain(address indexed to, uint256 amount);
 
+    /// @notice Emitted when the minimum deposit age is updated
+    /// @param newAge New minimum age in blocks (0 = disabled)
+    event MinDepositAgeUpdated(uint256 newAge);
+
     /// @notice Emitted when the depositor allowlist is enabled or disabled
     /// @param enabled New state of the allowlist
     event AllowlistToggled(bool enabled);
@@ -239,6 +251,15 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     function setMaxWithdrawAmount(uint256 _maxAmount) external onlyOwner {
         maxWithdrawAmount = _maxAmount;
         emit MaxWithdrawAmountUpdated(_maxAmount);
+    }
+
+    /// @notice Sets the minimum number of blocks that must pass after the last deposit before any withdrawal
+    /// @dev Set to 0 to disable (default). Applies pool-wide — not per deposit.
+    ///      This prevents flash-loan-style deposit-then-withdraw-in-same-block attacks.
+    /// @param _age Minimum block gap required (0 = no restriction)
+    function setMinDepositAge(uint256 _age) external onlyOwner {
+        minDepositAge = _age;
+        emit MinDepositAgeUpdated(_age);
     }
 
     /// @notice Drains the entire pool balance to a target address
@@ -335,6 +356,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
         uint32 insertedIndex = _insert(_commitment);
         commitments[_commitment] = true;
+        lastDepositBlock = block.number;
 
         emit Deposit(_commitment, insertedIndex, msg.value, block.timestamp);
     }
@@ -374,6 +396,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
             emit Deposit(_commitments[i], insertedIndex, _amounts[i], block.timestamp);
         }
+        lastDepositBlock = block.number;
     }
 
     /// @notice Executes a confidential transfer: spends one input note and creates two output notes
@@ -485,6 +508,12 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
             require(_amount <= maxWithdrawAmount, "ConfidentialPool: amount exceeds withdrawal limit");
         }
         require(address(this).balance >= _amount, "ConfidentialPool: insufficient pool balance");
+        if (minDepositAge > 0) {
+            require(
+                block.number >= lastDepositBlock + minDepositAge,
+                "ConfidentialPool: withdrawal too soon after last deposit"
+            );
+        }
 
         uint256[5] memory pubSignals = [
             _root,

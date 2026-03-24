@@ -1,4 +1,4 @@
-import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { loadFixture, mine } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { deployHasher } from "./helpers/hasher";
@@ -1278,6 +1278,144 @@ describe("ConfidentialPool", function () {
       await expect(
         pool.connect(alice).deposit(randomCommitment(), { value: d })
       ).to.be.revertedWith("ConfidentialPool: amount not an allowed denomination");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 9. MinDepositAge (withdrawal timelock)
+  // -------------------------------------------------------------------------
+
+  describe("MinDepositAge", function () {
+    it("defaults to 0 (disabled) and allows immediate withdrawal after deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      expect(await pool.minDepositAge()).to.equal(0n);
+
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
+
+      // Should succeed immediately with minDepositAge == 0
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("1"),
+          alice.address,
+          0n,
+          ethers.ZeroAddress,
+          0n
+        )
+      ).to.not.be.reverted;
+    });
+
+    it("only owner can call setMinDepositAge", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).setMinDepositAge(5n)
+      ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+    });
+
+    it("setMinDepositAge emits MinDepositAgeUpdated event", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      await expect(pool.connect(owner).setMinDepositAge(5n))
+        .to.emit(pool, "MinDepositAgeUpdated")
+        .withArgs(5n);
+    });
+
+    it("reverts withdrawal when called too soon after last deposit", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+
+      await pool.connect(owner).setMinDepositAge(5n);
+
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
+
+      // Attempt withdrawal immediately — should revert
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("1"),
+          alice.address,
+          0n,
+          ethers.ZeroAddress,
+          0n
+        )
+      ).to.be.revertedWith("ConfidentialPool: withdrawal too soon after last deposit");
+    });
+
+    it("allows withdrawal after the required number of blocks have elapsed", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+
+      await pool.connect(owner).setMinDepositAge(5n);
+
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
+
+      // Advance 5 blocks
+      await mine(5);
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("1"),
+          alice.address,
+          0n,
+          ethers.ZeroAddress,
+          0n
+        )
+      ).to.not.be.reverted;
+    });
+
+    it("resetting minDepositAge to 0 allows immediate withdrawal", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+
+      await pool.connect(owner).setMinDepositAge(5n);
+
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
+
+      // Reset delay to 0
+      await pool.connect(owner).setMinDepositAge(0n);
+
+      // Should now succeed immediately
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("1"),
+          alice.address,
+          0n,
+          ethers.ZeroAddress,
+          0n
+        )
+      ).to.not.be.reverted;
+    });
+
+    it("lastDepositBlock is updated on single deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const blockBefore = await ethers.provider.getBlockNumber();
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      const lastDepositBlock = await pool.lastDepositBlock();
+      expect(lastDepositBlock).to.be.greaterThan(blockBefore);
+    });
+
+    it("lastDepositBlock is updated on batchDeposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const blockBefore = await ethers.provider.getBlockNumber();
+      const commitments = [randomCommitment(), randomCommitment()];
+      const amounts = [ethers.parseEther("1"), ethers.parseEther("1")];
+      await pool.connect(alice).batchDeposit(commitments, amounts, { value: ethers.parseEther("2") });
+      const lastDepositBlock = await pool.lastDepositBlock();
+      expect(lastDepositBlock).to.be.greaterThan(blockBefore);
     });
   });
 });
