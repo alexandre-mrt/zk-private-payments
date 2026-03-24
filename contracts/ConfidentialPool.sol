@@ -31,6 +31,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     mapping(uint256 => bool) public nullifiers;
     mapping(uint256 => bool) public commitments;
 
+    /// @notice Denomination set — when non-empty, deposits must match one of these values
+    mapping(uint256 => bool) public allowedDenominations;
+    uint256[] public denominationList;
+
     event Deposit(
         uint256 indexed commitment,
         uint32 leafIndex,
@@ -48,6 +52,8 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         address recipient,
         uint256 changeCommitment
     );
+    event DenominationAdded(uint256 denomination);
+    event DenominationRemoved(uint256 denomination);
 
     constructor(
         address _transferVerifier,
@@ -67,10 +73,37 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Unpause the pool — only owner
     function unpause() external onlyOwner { _unpause(); }
 
+    /// @notice Add an allowed deposit denomination — only owner
+    function addDenomination(uint256 _denomination) external onlyOwner {
+        require(_denomination > 0, "ConfidentialPool: zero denomination");
+        require(!allowedDenominations[_denomination], "ConfidentialPool: denomination exists");
+        allowedDenominations[_denomination] = true;
+        denominationList.push(_denomination);
+        emit DenominationAdded(_denomination);
+    }
+
+    /// @notice Remove an allowed deposit denomination — only owner
+    function removeDenomination(uint256 _denomination) external onlyOwner {
+        require(allowedDenominations[_denomination], "ConfidentialPool: denomination not found");
+        allowedDenominations[_denomination] = false;
+        emit DenominationRemoved(_denomination);
+    }
+
+    /// @notice Return the full list of configured denominations
+    function getDenominations() external view returns (uint256[] memory) {
+        return denominationList;
+    }
+
     /// @notice Deposit ETH and create a note commitment
     /// @param _commitment Poseidon(amount, blinding, ownerPubKeyX)
     function deposit(uint256 _commitment) external payable nonReentrant whenNotPaused {
         require(msg.value > 0, "ConfidentialPool: zero deposit");
+        if (denominationList.length > 0) {
+            require(
+                allowedDenominations[msg.value],
+                "ConfidentialPool: amount not an allowed denomination"
+            );
+        }
         require(_commitment != 0, "ConfidentialPool: zero commitment");
         require(_commitment < FIELD_SIZE, "ConfidentialPool: commitment >= field size");
         require(!commitments[_commitment], "ConfidentialPool: duplicate commitment");

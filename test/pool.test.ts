@@ -815,4 +815,118 @@ describe("ConfidentialPool", function () {
       expect(await pool.isKnownRoot(root)).to.be.true;
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 6. Denominations
+  // -------------------------------------------------------------------------
+
+  describe("Denominations", function () {
+    it("addDenomination by owner succeeds and emits event", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const d = ethers.parseEther("1");
+      await expect(pool.connect(owner).addDenomination(d))
+        .to.emit(pool, "DenominationAdded")
+        .withArgs(d);
+      expect(await pool.allowedDenominations(d)).to.be.true;
+    });
+
+    it("getDenominations returns the full list", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const d1 = ethers.parseEther("0.1");
+      const d2 = ethers.parseEther("1");
+      await pool.connect(owner).addDenomination(d1);
+      await pool.connect(owner).addDenomination(d2);
+      const list = await pool.getDenominations();
+      expect(list.length).to.equal(2);
+      expect(list[0]).to.equal(d1);
+      expect(list[1]).to.equal(d2);
+    });
+
+    it("removeDenomination by owner succeeds and emits event", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const d = ethers.parseEther("1");
+      await pool.connect(owner).addDenomination(d);
+      await expect(pool.connect(owner).removeDenomination(d))
+        .to.emit(pool, "DenominationRemoved")
+        .withArgs(d);
+      expect(await pool.allowedDenominations(d)).to.be.false;
+    });
+
+    it("deposit with allowed denomination succeeds", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      const d = ethers.parseEther("1");
+      await pool.connect(owner).addDenomination(d);
+      const commitment = randomCommitment();
+      await expect(pool.connect(alice).deposit(commitment, { value: d }))
+        .to.emit(pool, "Deposit");
+    });
+
+    it("deposit with non-allowed denomination reverts", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).addDenomination(ethers.parseEther("1"));
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("0.5") })
+      ).to.be.revertedWith("ConfidentialPool: amount not an allowed denomination");
+    });
+
+    it("only owner can add denomination", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).addDenomination(ethers.parseEther("1"))
+      ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+    });
+
+    it("only owner can remove denomination", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).addDenomination(ethers.parseEther("1"));
+      await expect(
+        pool.connect(alice).removeDenomination(ethers.parseEther("1"))
+      ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+    });
+
+    it("addDenomination reverts for zero value", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(owner).addDenomination(0n)
+      ).to.be.revertedWith("ConfidentialPool: zero denomination");
+    });
+
+    it("addDenomination reverts for duplicate", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const d = ethers.parseEther("1");
+      await pool.connect(owner).addDenomination(d);
+      await expect(
+        pool.connect(owner).addDenomination(d)
+      ).to.be.revertedWith("ConfidentialPool: denomination exists");
+    });
+
+    it("removeDenomination reverts when denomination not found", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(owner).removeDenomination(ethers.parseEther("1"))
+      ).to.be.revertedWith("ConfidentialPool: denomination not found");
+    });
+
+    it("when no denominations set, any amount is accepted (backwards compatible)", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      // No denominations configured — any non-zero amount works
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("0.123") })
+      ).to.emit(pool, "Deposit");
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("7.77") })
+      ).to.emit(pool, "Deposit");
+    });
+
+    it("deposit after removing denomination reverts with non-allowed amount", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      const d = ethers.parseEther("1");
+      await pool.connect(owner).addDenomination(d);
+      await pool.connect(owner).removeDenomination(d);
+      // denominationList still has one entry but allowedDenominations[d] is false
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: d })
+      ).to.be.revertedWith("ConfidentialPool: amount not an allowed denomination");
+    });
+  });
 });
