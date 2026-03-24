@@ -112,6 +112,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     ///      Callers must cross-reference `allowedDenominations` for the current status.
     uint256[] public denominationList;
 
+    /// @notice Maximum ETH amount allowed per withdrawal transaction (in wei)
+    /// @dev When set to 0, no per-transaction cap is enforced.
+    uint256 public maxWithdrawAmount;
+
     /// @notice Emitted when a new note commitment is deposited into the pool
     /// @param commitment  Poseidon commitment of the new note
     /// @param leafIndex   Position in the Merkle tree where the commitment was inserted
@@ -158,6 +162,15 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @param denomination The denomination value in wei
     event DenominationRemoved(uint256 denomination);
 
+    /// @notice Emitted when the per-transaction withdrawal cap is updated
+    /// @param newMax New maximum withdrawal amount in wei (0 = no limit)
+    event MaxWithdrawAmountUpdated(uint256 newMax);
+
+    /// @notice Emitted when the owner drains the pool balance in an emergency
+    /// @param to      Recipient address that received the funds
+    /// @param amount  ETH amount in wei transferred
+    event EmergencyDrain(address indexed to, uint256 amount);
+
     /// @notice Deploys the pool and wires up both verifiers and the Merkle tree
     /// @param _transferVerifier  Address of the deployed ITransferVerifier contract
     /// @param _withdrawVerifier  Address of the deployed IWithdrawVerifier contract
@@ -182,6 +195,26 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Unpauses the pool and resumes normal operation
     /// @dev Only callable by the owner.
     function unpause() external onlyOwner { _unpause(); }
+
+    /// @notice Sets the maximum ETH amount that can be withdrawn in a single transaction
+    /// @dev Set to 0 to disable the cap. Only callable by the owner.
+    /// @param _maxAmount New cap in wei (0 = no limit)
+    function setMaxWithdrawAmount(uint256 _maxAmount) external onlyOwner {
+        maxWithdrawAmount = _maxAmount;
+        emit MaxWithdrawAmountUpdated(_maxAmount);
+    }
+
+    /// @notice Drains the entire pool balance to a target address
+    /// @dev Only callable by the owner when the pool is paused. Use in emergencies only.
+    /// @param _to Payable address that will receive all pool funds
+    function emergencyDrain(address payable _to) external onlyOwner whenPaused {
+        require(_to != address(0), "ConfidentialPool: zero drain address");
+        uint256 balance = address(this).balance;
+        require(balance > 0, "ConfidentialPool: no balance to drain");
+        (bool success, ) = _to.call{value: balance}("");
+        require(success, "ConfidentialPool: drain transfer failed");
+        emit EmergencyDrain(_to, balance);
+    }
 
     /// @notice Adds a denomination to the allow-list
     /// @dev When the list is non-empty, deposits must match an allowed denomination.
@@ -342,6 +375,9 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         require(isKnownRoot(_root), "ConfidentialPool: unknown root");
         require(_recipient != address(0), "ConfidentialPool: zero recipient");
         require(_amount > 0, "ConfidentialPool: zero withdrawal amount");
+        if (maxWithdrawAmount > 0) {
+            require(_amount <= maxWithdrawAmount, "ConfidentialPool: amount exceeds withdrawal limit");
+        }
         require(address(this).balance >= _amount, "ConfidentialPool: insufficient pool balance");
 
         uint256[5] memory pubSignals = [

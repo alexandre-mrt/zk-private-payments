@@ -173,6 +173,139 @@ describe("ConfidentialPool — Security", function () {
   });
 
   // -------------------------------------------------------------------------
+  // Max withdrawal amount
+  // -------------------------------------------------------------------------
+
+  describe("Max withdrawal amount", function () {
+    it("owner can set maxWithdrawAmount", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const cap = ethers.parseEther("2");
+      await expect(pool.connect(owner).setMaxWithdrawAmount(cap))
+        .to.emit(pool, "MaxWithdrawAmountUpdated")
+        .withArgs(cap);
+      expect(await pool.maxWithdrawAmount()).to.equal(cap);
+    });
+
+    it("non-owner cannot set maxWithdrawAmount", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).setMaxWithdrawAmount(ethers.parseEther("2"))
+      ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+    });
+
+    it("withdraw reverts when amount exceeds max", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+
+      const cap = ethers.parseEther("0.5");
+      await pool.connect(owner).setMaxWithdrawAmount(cap);
+
+      const commitment = randomCommitment();
+      await pool
+        .connect(alice)
+        .deposit(commitment, { value: ethers.parseEther("1") });
+      const root = await pool.getLastRoot();
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("1"),
+          alice.address,
+          0n,
+          ethers.ZeroAddress,
+          0n
+        )
+      ).to.be.revertedWith("ConfidentialPool: amount exceeds withdrawal limit");
+    });
+
+    it("withdraw succeeds at exactly max", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+
+      const cap = ethers.parseEther("1");
+      await pool.connect(owner).setMaxWithdrawAmount(cap);
+
+      const commitment = randomCommitment();
+      await pool
+        .connect(alice)
+        .deposit(commitment, { value: cap });
+      const root = await pool.getLastRoot();
+
+      // Amount equals the cap exactly — the limit check must not revert.
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          cap,
+          alice.address,
+          0n,
+          ethers.ZeroAddress,
+          0n
+        )
+      ).to.not.be.reverted;
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Emergency drain
+  // -------------------------------------------------------------------------
+
+  describe("Emergency drain", function () {
+    it("owner can drain when paused", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+
+      const depositAmount = ethers.parseEther("3");
+      await pool.connect(alice).deposit(randomCommitment(), { value: depositAmount });
+      await pool.connect(owner).pause();
+
+      await expect(pool.connect(owner).emergencyDrain(owner.address))
+        .to.emit(pool, "EmergencyDrain")
+        .withArgs(owner.address, depositAmount);
+    });
+
+    it("emergency drain reverts when not paused", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+
+      await expect(
+        pool.connect(owner).emergencyDrain(owner.address)
+      ).to.be.revertedWithCustomError(pool, "ExpectedPause");
+    });
+
+    it("non-owner cannot emergency drain", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      await pool.connect(owner).pause();
+
+      await expect(
+        pool.connect(alice).emergencyDrain(alice.address)
+      ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+    });
+
+    it("emergency drain sends full balance to recipient", async function () {
+      const { pool, owner, alice, bob } = await loadFixture(deployPoolFixture);
+
+      const depositAmount = ethers.parseEther("5");
+      await pool.connect(alice).deposit(randomCommitment(), { value: depositAmount });
+      await pool.connect(owner).pause();
+
+      const bobBefore = await ethers.provider.getBalance(bob.address);
+      await pool.connect(owner).emergencyDrain(bob.address);
+      const bobAfter = await ethers.provider.getBalance(bob.address);
+
+      expect(bobAfter - bobBefore).to.equal(depositAmount);
+      expect(await ethers.provider.getBalance(await pool.getAddress())).to.equal(0n);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Pausable — withdraw
   // -------------------------------------------------------------------------
 
