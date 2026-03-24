@@ -3,12 +3,47 @@
 > Items that need your attention. Run `grep -r "NIGHT-SHIFT-REVIEW" .` to find marked code.
 
 ## Summary
-- 1 uncertainty
+- 6 uncertainties
 - 0 tasks blocked
 - 0 fixes failed
 - 1 assumption made
 
 ## Problems
+
+### ASSUMPTION: ConfidentialPool ABI matches task spec exactly
+- **File**: frontend/src/lib/constants.ts
+- **What I needed**: Actual deployed contract ABI (no contract files existed at frontend build time)
+- **What I did**: Used the function signatures from the task spec verbatim
+- **Confidence**: HIGH (spec was explicit)
+- **User action needed**: Verify ABI matches deployed contract once contracts are written
+
+### ASSUMPTION: Note commitment uses Poseidon(amount, blinding, ownerPubX, ownerPubY)
+- **File**: frontend/src/lib/crypto.ts:computeCommitment
+- **What I needed**: Exact Poseidon commitment construction used in circuits
+- **What I did**: Used 4-input Poseidon with amount, blinding, pubX, pubY
+- **Confidence**: MEDIUM
+- **User action needed**: Align commitment scheme with actual circuit inputs when circuits are finalized
+
+### ASSUMPTION: Nullifier = Poseidon(commitment, spendingKey)
+- **File**: frontend/src/lib/crypto.ts:computeNullifier
+- **What I needed**: Exact nullifier construction matching withdraw/transfer circuit
+- **What I did**: Used 2-input Poseidon(commitment, spendingKey) per CLAUDE.md design doc
+- **Confidence**: HIGH
+- **User action needed**: Verify matches circuits when written
+
+### UNCERTAINTY: Stealth scan matching logic
+- **File**: frontend/src/components/ScanCard.tsx
+- **What I needed**: How StealthRegistry stores/computes stealth address for matching
+- **What I did**: Derived commitment via ECDH + Poseidon, used view tag fast-reject. Marked NIGHT-SHIFT-REVIEW
+- **Confidence**: LOW — scan will work once REGISTRY_ADDRESS_ZERO is updated and contracts deployed
+- **User action needed**: Verify matching logic against StealthRegistry.sol once written
+
+### ASSUMPTION: Proof circuit input signal names for transfer/withdraw
+- **File**: frontend/src/lib/proof.ts
+- **What I needed**: Exact circuit signal names for transfer.circom and withdraw.circom
+- **What I did**: Used descriptive names consistent with spec. Proof gen will fail until circuits compiled and WASM/zkey placed in frontend/public/circuits/
+- **Confidence**: LOW — depends on circuit implementation
+- **User action needed**: After circuits compile, align signal names in TransferProofInput / WithdrawProofInput with actual circuit signals
 
 ### UNCERTAINTY: Stealth address scan matching in cli/scan.ts
 - **Iteration**: 1
