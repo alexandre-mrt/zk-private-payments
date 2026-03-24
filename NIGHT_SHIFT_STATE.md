@@ -22,7 +22,7 @@ Execution
 - [x] P1: Scaffold project structure + dependencies
 - [x] P2: Circom circuits — stealth address, confidential transfer, withdraw, note commitment, range proof, deposit
 - [x] P3: Circuit compilation scripts + deploy script + hasher helper
-- [ ] P4: Solidity contracts — StealthRegistry, ConfidentialPool, Verifier placeholder
+- [x] P4: Solidity contracts — StealthRegistry, ConfidentialPool, MerkleTree, 2 verifier placeholders
 - [ ] P5: Contract tests (Hardhat)
 - [ ] P6: CLI with commander.js — keygen, register, deposit, scan, transfer, withdraw, balance
 - [ ] P7: Frontend (React + wagmi + shadcn) — keygen, deposit, scan, transfer, withdraw
