@@ -13,3 +13,4 @@ deployment.json
 package-lock.json
 .claude/
 notes/
+keys/
