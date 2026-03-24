@@ -1,7 +1,6 @@
 import { Command } from "commander";
 import { ethers } from "ethers";
-import { createNote } from "./crypto.js";
-import { deriveStealthKeypair } from "./crypto.js";
+import { createNote, deriveStealthKeypair } from "./crypto.js";
 import {
   getProvider,
   getWallet,
@@ -9,6 +8,7 @@ import {
   getStealthRegistry,
   loadFirstKeys,
   saveNote,
+  log,
 } from "./utils.js";
 
 export function registerDeposit(program: Command): void {
@@ -22,6 +22,15 @@ export function registerDeposit(program: Command): void {
     )
     .option("--to-y <stealthPubKeyY>", "Stealth spending pubkey Y of recipient")
     .option("--rpc <url>", "RPC URL")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ zk-pay deposit --amount 1.0
+  $ zk-pay deposit --amount 0.5 --to <recipientPubKeyX> --to-y <recipientPubKeyY>
+  $ zk-pay deposit --amount 1.0 --rpc http://localhost:8545
+`
+    )
     .action(
       async (opts: {
         amount: string;
@@ -29,37 +38,50 @@ export function registerDeposit(program: Command): void {
         toY?: string;
         rpc?: string;
       }) => {
+        const rpcUrl = opts.rpc ?? process.env["RPC_URL"] ?? "http://127.0.0.1:8545";
         try {
+          // Validate amount before async work
+          const parsedAmount = Number.parseFloat(opts.amount);
+          if (Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+            log.error(`Invalid amount: "${opts.amount}". Amount must be a positive number.`);
+            process.exit(1);
+          }
+
+          // Validate stealth payment args
+          if (opts.to && !opts.toY) {
+            log.error("--to-y is required when announcing a stealth payment (provide recipient viewing pubkey Y).");
+            process.exit(1);
+          }
+
           const provider = getProvider(opts.rpc);
           const wallet = getWallet(provider);
           const keys = loadFirstKeys();
 
           const amountWei = ethers.parseEther(opts.amount);
-          const amountBigInt = amountWei;
 
-          console.log(`Creating note for ${opts.amount} ETH...`);
-          const note = await createNote(amountBigInt, keys.spendingPubKey.x);
+          log.info(`Creating note for ${opts.amount} ETH...`);
+          const note = await createNote(amountWei, keys.spendingPubKey.x);
 
-          console.log("  commitment:", note.commitment.toString());
-          console.log("  blinding:  ", note.blinding.toString());
+          log.step(`commitment: ${note.commitment.toString()}`);
+          log.step(`blinding:   ${note.blinding.toString()}`);
 
           const pool = getConfidentialPool(wallet);
-          console.log("\nSubmitting deposit transaction...");
+          log.info("Submitting deposit transaction...");
 
           const tx = await pool["deposit"](note.commitment, { value: amountWei });
-          console.log("Transaction sent:", tx.hash);
+          log.step(`Transaction sent: ${tx.hash}`);
 
           const receipt = await tx.wait();
-          console.log("Confirmed in block:", receipt.blockNumber);
+          log.step(`Confirmed in block: ${receipt.blockNumber}`);
 
           // Find the leaf index from the Deposit event
           let leafIndex: number | undefined;
-          for (const log of receipt.logs) {
+          for (const txLog of receipt.logs) {
             try {
-              const parsed = pool.interface.parseLog(log);
+              const parsed = pool.interface.parseLog(txLog);
               if (parsed?.name === "Deposit") {
                 leafIndex = Number(parsed.args["leafIndex"]);
-                console.log("Leaf index:", leafIndex);
+                log.step(`Leaf index: ${leafIndex}`);
               }
             } catch {
               // Not a pool log
@@ -72,20 +94,14 @@ export function registerDeposit(program: Command): void {
             txHash: tx.hash,
             createdAt: new Date().toISOString(),
           });
-          console.log(`\nNote saved to notes/${note.commitment}.json`);
+          log.success(`Note saved to notes/${note.commitment}.json`);
 
           // Optional stealth announcement
-          if (opts.to) {
-            if (!opts.toY) {
-              console.error(
-                "Error: --to-y is required when announcing a stealth payment (provide recipient viewing pubkey Y)"
-              );
-              process.exit(1);
-            }
+          if (opts.to && opts.toY) {
             const recipientPubKeyX = BigInt(opts.to);
             const recipientPubKeyY = BigInt(opts.toY);
 
-            console.log("\nAnnouncing stealth payment...");
+            log.info("Announcing stealth payment...");
             const stealth = await deriveStealthKeypair(recipientPubKeyX, recipientPubKeyY);
 
             const registry = getStealthRegistry(wallet);
@@ -97,10 +113,19 @@ export function registerDeposit(program: Command): void {
               stealth.stealthPubKeyY
             );
             await announceTx.wait();
-            console.log("Stealth payment announced:", announceTx.hash);
+            log.success(`Stealth payment announced: ${announceTx.hash}`);
           }
         } catch (err) {
-          console.error("deposit failed:", (err as Error).message);
+          const message = (err as Error).message;
+          if (
+            message.includes("PRIVATE_KEY") ||
+            message.includes("No key files") ||
+            message.includes("deployment.json")
+          ) {
+            log.error(message);
+          } else {
+            log.error(`Failed to connect to RPC at ${rpcUrl}: ${message}`);
+          }
           process.exit(1);
         }
       }

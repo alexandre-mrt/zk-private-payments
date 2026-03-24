@@ -12,8 +12,9 @@ const program = new Command();
 
 program
   .name("zk-pay")
-  .description("ZK Private Payments CLI — confidential transactions on Ethereum")
-  .version("0.1.0");
+  .description("ZK Private Payments CLI — stealth addresses + confidential amounts")
+  .version("0.1.0")
+  .option("-v, --verbose", "Show detailed output (tx hashes, gas, note details)");
 
 registerKeygen(program);
 registerRegister(program);
