@@ -20,8 +20,8 @@ Execution
 
 #### Part 2: ZK Private Payments (~/Desktop/zk-private-payments)
 - [x] P1: Scaffold project structure + dependencies
-- [ ] P2: Circom circuits — stealth address (BabyJubjub ECDH), confidential transfer (Pedersen + range proof), note commitment
-- [ ] P3: Circuit compilation scripts
+- [x] P2: Circom circuits — stealth address, confidential transfer, withdraw, note commitment, range proof, deposit
+- [x] P3: Circuit compilation scripts + deploy script + hasher helper
 - [ ] P4: Solidity contracts — StealthRegistry, ConfidentialPool, Verifier placeholder
 - [ ] P5: Contract tests (Hardhat)
 - [ ] P6: CLI with commander.js — keygen, register, deposit, scan, transfer, withdraw, balance
