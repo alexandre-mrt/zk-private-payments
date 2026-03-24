@@ -423,6 +423,60 @@ describe("ConfidentialPool", function () {
       ).to.be.revertedWith("ConfidentialPool: zero output commitment");
     });
 
+    it("transfer doesn't change pool ETH balance", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const depositAmount = ethers.parseEther("1");
+      const commitment = randomCommitment();
+      const root = await depositAndGetRoot(pool, alice, commitment, depositAmount);
+
+      const balanceBefore = await pool.getPoolBalance();
+
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        randomCommitment(),
+        randomCommitment()
+      );
+
+      expect(await pool.getPoolBalance()).to.equal(balanceBefore);
+    });
+
+    it("consecutive transfers with different nullifiers both succeed", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const depositAmount = ethers.parseEther("1");
+      const commitment = randomCommitment();
+      const root = await depositAndGetRoot(pool, alice, commitment, depositAmount);
+
+      const nullifier1 = randomCommitment();
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        nullifier1,
+        randomCommitment(),
+        randomCommitment()
+      );
+
+      const rootAfterFirst = await pool.getLastRoot();
+      const nullifier2 = randomCommitment();
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        rootAfterFirst,
+        nullifier2,
+        randomCommitment(),
+        randomCommitment()
+      );
+
+      expect(await pool.nullifiers(nullifier1)).to.be.true;
+      expect(await pool.nullifiers(nullifier2)).to.be.true;
+    });
+
     it("reverts when outputCommitment1 >= FIELD_SIZE", async function () {
       const { pool, alice } = await loadFixture(deployPoolFixture);
       const root = await depositAndGetRoot(pool, alice, randomCommitment());
@@ -1015,6 +1069,24 @@ describe("ConfidentialPool", function () {
       await expect(
         pool.connect(alice).batchDeposit([], [], { value: 0n })
       ).to.be.revertedWith("ConfidentialPool: empty batch");
+    });
+
+    it("pool balance tracks correctly after batch deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitments = [randomCommitment(), randomCommitment(), randomCommitment()];
+      const amounts = [
+        ethers.parseEther("1"),
+        ethers.parseEther("2"),
+        ethers.parseEther("0.5"),
+      ];
+      const totalAmount = amounts.reduce((a, b) => a + b, 0n);
+
+      await pool.connect(alice).batchDeposit(commitments, amounts, { value: totalAmount });
+
+      expect(await pool.getPoolBalance()).to.equal(totalAmount);
+      expect(
+        await ethers.provider.getBalance(await pool.getAddress())
+      ).to.equal(totalAmount);
     });
 
     it("reverts when batch exceeds 10 commitments", async function () {
