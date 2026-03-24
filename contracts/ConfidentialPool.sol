@@ -139,11 +139,15 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @param amount          ETH amount in wei transferred to the recipient
     /// @param recipient       Address that received the ETH
     /// @param changeCommitment Commitment of the change note (0 if no change)
+    /// @param relayer         Address that submitted the transaction on behalf of the user (address(0) if self-relay)
+    /// @param fee             Fee in wei paid to the relayer (0 if self-relay)
     event Withdrawal(
         uint256 indexed nullifier,
         uint256 amount,
         address recipient,
-        uint256 changeCommitment
+        uint256 changeCommitment,
+        address relayer,
+        uint256 fee
     );
 
     /// @notice Emitted when a new denomination is added to the allow-list
@@ -305,6 +309,12 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     ///        [4] _changeCommitment — Change note commitment (0 if no change)
     ///      All state mutations (nullifier + change note) occur before the ETH transfer
     ///      to follow the checks-effects-interactions pattern and guard against reentrancy.
+    ///
+    ///      NIGHT-SHIFT-REVIEW: _relayer and _fee are NOT part of the circuit public signals.
+    ///      This means a malicious tx submitter could swap the relayer address or inflate the fee
+    ///      without invalidating the ZK proof. In production, both should be added as circuit
+    ///      signals (as done in zk-mixer) so they are bound by the proof. For now they are
+    ///      accepted as unchecked calldata — the user must trust the relayer they designated.
     /// @param _pA              Groth16 proof element A
     /// @param _pB              Groth16 proof element B
     /// @param _pC              Groth16 proof element C
@@ -313,6 +323,8 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @param _amount          ETH amount in wei to send to `_recipient`
     /// @param _recipient       Payable address that will receive the ETH
     /// @param _changeCommitment Commitment of the change note; use 0 if no change
+    /// @param _relayer         Address that submitted the tx on behalf of the user; use address(0) for self-relay
+    /// @param _fee             Fee in wei deducted from `_amount` and sent to `_relayer`; use 0 for self-relay
     function withdraw(
         uint256[2] calldata _pA,
         uint256[2][2] calldata _pB,
@@ -321,8 +333,11 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint256 _nullifier,
         uint256 _amount,
         address payable _recipient,
-        uint256 _changeCommitment
+        uint256 _changeCommitment,
+        address payable _relayer,
+        uint256 _fee
     ) external nonReentrant whenNotPaused {
+        require(_fee <= _amount, "ConfidentialPool: fee exceeds amount");
         require(!nullifiers[_nullifier], "ConfidentialPool: nullifier already spent");
         require(isKnownRoot(_root), "ConfidentialPool: unknown root");
         require(_recipient != address(0), "ConfidentialPool: zero recipient");
@@ -342,7 +357,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
             "ConfidentialPool: invalid withdrawal proof"
         );
 
-        // All state writes before ETH transfer (reentrancy protection)
+        // All state writes before ETH transfers (checks-effects-interactions)
         nullifiers[_nullifier] = true;
 
         if (_changeCommitment != 0) {
@@ -354,9 +369,17 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
             commitments[_changeCommitment] = true;
         }
 
-        (bool success, ) = _recipient.call{value: _amount}("");
-        require(success, "ConfidentialPool: ETH transfer failed");
+        uint256 recipientAmount = _amount - _fee;
 
-        emit Withdrawal(_nullifier, _amount, _recipient, _changeCommitment);
+        (bool success, ) = _recipient.call{value: recipientAmount}("");
+        require(success, "ConfidentialPool: recipient transfer failed");
+
+        if (_fee > 0) {
+            require(_relayer != address(0), "ConfidentialPool: zero relayer for non-zero fee");
+            (bool feeSuccess, ) = _relayer.call{value: _fee}("");
+            require(feeSuccess, "ConfidentialPool: relayer transfer failed");
+        }
+
+        emit Withdrawal(_nullifier, _amount, _recipient, _changeCommitment, _relayer, _fee);
     }
 }

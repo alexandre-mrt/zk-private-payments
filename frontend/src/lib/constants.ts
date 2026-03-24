@@ -34,6 +34,8 @@ export const POOL_ABI = [
       { name: "amount", type: "uint256" },
       { name: "recipient", type: "address" },
       { name: "changeCommitment", type: "uint256" },
+      { name: "relayer", type: "address" },
+      { name: "fee", type: "uint256" },
     ],
     outputs: [],
     stateMutability: "nonpayable",
@@ -75,8 +77,11 @@ export const POOL_ABI = [
     name: "Withdrawal",
     inputs: [
       { name: "nullifier", type: "uint256", indexed: true },
-      { name: "recipient", type: "address", indexed: false },
       { name: "amount", type: "uint256", indexed: false },
+      { name: "recipient", type: "address", indexed: false },
+      { name: "changeCommitment", type: "uint256", indexed: false },
+      { name: "relayer", type: "address", indexed: false },
+      { name: "fee", type: "uint256", indexed: false },
     ],
   },
 ] as const;

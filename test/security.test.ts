@@ -197,6 +197,8 @@ describe("ConfidentialPool — Security", function () {
           randomCommitment(),
           ethers.parseEther("1"),
           alice.address,
+          0n,
+          ethers.ZeroAddress,
           0n
         )
       ).to.be.revertedWithCustomError(pool, "EnforcedPause");
@@ -223,6 +225,8 @@ describe("ConfidentialPool — Security", function () {
           randomCommitment(),
           ethers.parseEther("1"),
           alice.address,
+          0n,
+          ethers.ZeroAddress,
           0n
         )
       ).to.not.be.reverted;

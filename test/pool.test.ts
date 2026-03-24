@@ -455,7 +455,9 @@ describe("ConfidentialPool", function () {
         nullifier,
         withdrawAmount,
         bob.address,
-        0n // no change commitment
+        0n, // no change commitment
+        ethers.ZeroAddress,
+        0n
       );
 
       const bobAfter = await ethers.provider.getBalance(bob.address);
@@ -484,11 +486,13 @@ describe("ConfidentialPool", function () {
           nullifier,
           withdrawAmount,
           bob.address,
+          0n,
+          ethers.ZeroAddress,
           0n
         )
       )
         .to.emit(pool, "Withdrawal")
-        .withArgs(nullifier, withdrawAmount, bob.address, 0n);
+        .withArgs(nullifier, withdrawAmount, bob.address, 0n, ethers.ZeroAddress, 0n);
     });
 
     it("inserts change commitment when non-zero", async function () {
@@ -511,7 +515,9 @@ describe("ConfidentialPool", function () {
         randomCommitment(),
         ethers.parseEther("1"),
         recipientAddr,
-        changeCommitment
+        changeCommitment,
+        ethers.ZeroAddress,
+        0n
       );
 
       expect(await pool.commitments(changeCommitment)).to.be.true;
@@ -534,6 +540,8 @@ describe("ConfidentialPool", function () {
         randomCommitment(),
         ethers.parseEther("1"),
         alice.address,
+        0n,
+        ethers.ZeroAddress,
         0n
       );
 
@@ -560,6 +568,8 @@ describe("ConfidentialPool", function () {
         nullifier,
         ethers.parseEther("1"),
         alice.address,
+        0n,
+        ethers.ZeroAddress,
         0n
       );
 
@@ -574,6 +584,8 @@ describe("ConfidentialPool", function () {
           nullifier,
           ethers.parseEther("1"),
           alice.address,
+          0n,
+          ethers.ZeroAddress,
           0n
         )
       ).to.be.revertedWith("ConfidentialPool: nullifier already spent");
@@ -591,6 +603,8 @@ describe("ConfidentialPool", function () {
           randomCommitment(),
           ethers.parseEther("1"),
           alice.address,
+          0n,
+          ethers.ZeroAddress,
           0n
         )
       ).to.be.revertedWith("ConfidentialPool: unknown root");
@@ -613,6 +627,8 @@ describe("ConfidentialPool", function () {
           root,
           randomCommitment(),
           ethers.parseEther("1"),
+          ethers.ZeroAddress,
+          0n,
           ethers.ZeroAddress,
           0n
         )
@@ -637,6 +653,8 @@ describe("ConfidentialPool", function () {
           randomCommitment(),
           0n,
           alice.address,
+          0n,
+          ethers.ZeroAddress,
           0n
         )
       ).to.be.revertedWith("ConfidentialPool: zero withdrawal amount");
@@ -660,6 +678,8 @@ describe("ConfidentialPool", function () {
           randomCommitment(),
           ethers.parseEther("10"), // more than deposited
           alice.address,
+          0n,
+          ethers.ZeroAddress,
           0n
         )
       ).to.be.revertedWith("ConfidentialPool: insufficient pool balance");
@@ -683,9 +703,93 @@ describe("ConfidentialPool", function () {
           randomCommitment(),
           ethers.parseEther("1"),
           alice.address,
-          FIELD_SIZE
+          FIELD_SIZE,
+          ethers.ZeroAddress,
+          0n
         )
       ).to.be.revertedWith("ConfidentialPool: change commitment >= field size");
+    });
+
+    it("withdraw with fee: recipient gets (amount - fee), relayer gets fee", async function () {
+      const { pool, alice, bob, relayer } = await loadFixture(deployPoolFixture);
+      const depositAmount = ethers.parseEther("1");
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), depositAmount);
+
+      const withdrawAmount = ethers.parseEther("1");
+      const fee = ethers.parseEther("0.01");
+      const recipientAmount = withdrawAmount - fee;
+
+      const bobBefore = await ethers.provider.getBalance(bob.address);
+      const relayerBefore = await ethers.provider.getBalance(relayer.address);
+
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        withdrawAmount,
+        bob.address,
+        0n,
+        relayer.address,
+        fee
+      );
+
+      const bobAfter = await ethers.provider.getBalance(bob.address);
+      const relayerAfter = await ethers.provider.getBalance(relayer.address);
+
+      expect(bobAfter - bobBefore).to.equal(recipientAmount);
+      expect(relayerAfter - relayerBefore).to.equal(fee);
+    });
+
+    it("reverts when fee exceeds amount", async function () {
+      const { pool, alice, bob, relayer } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        ethers.parseEther("1")
+      );
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("1"),
+          bob.address,
+          0n,
+          relayer.address,
+          ethers.parseEther("1.01") // fee > amount
+        )
+      ).to.be.revertedWith("ConfidentialPool: fee exceeds amount");
+    });
+
+    it("reverts when non-zero fee is paired with zero relayer address", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        ethers.parseEther("1")
+      );
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("1"),
+          bob.address,
+          0n,
+          ethers.ZeroAddress, // zero relayer
+          ethers.parseEther("0.01") // non-zero fee
+        )
+      ).to.be.revertedWith("ConfidentialPool: zero relayer for non-zero fee");
     });
   });
 
@@ -729,6 +833,8 @@ describe("ConfidentialPool", function () {
         withdrawNullifier,
         ethers.parseEther("1"),
         bob.address,
+        0n,
+        ethers.ZeroAddress,
         0n
       );
 
@@ -790,7 +896,9 @@ describe("ConfidentialPool", function () {
         nullifier,
         withdrawAmount,
         alice.address,
-        changeCommitment
+        changeCommitment,
+        ethers.ZeroAddress,
+        0n
       );
 
       // Change commitment should be in the tree

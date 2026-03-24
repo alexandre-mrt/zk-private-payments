@@ -215,7 +215,9 @@ describe("Gas Benchmarks", function () {
           randomCommitment(),
           ethers.parseEther("0.5"),
           bob.address,
-          changeCommitment
+          changeCommitment,
+          ethers.ZeroAddress,
+          0n
         );
       const receipt = await tx.wait();
       console.log(`    Withdraw (with change) gas: ${receipt?.gasUsed}`);
@@ -241,7 +243,9 @@ describe("Gas Benchmarks", function () {
           randomCommitment(),
           ethers.parseEther("1"),
           bob.address,
-          0n // no change
+          0n, // no change
+          ethers.ZeroAddress,
+          0n
         );
       const receipt = await tx.wait();
       console.log(`    Withdraw (no change) gas: ${receipt?.gasUsed}`);

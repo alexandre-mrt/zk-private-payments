@@ -166,7 +166,9 @@ describe("E2E: ZK Private Payments (real Poseidon)", function () {
         bobNullifier,
         bobAmount,
         bob.address,
-        0n // no further change
+        0n, // no further change
+        ethers.ZeroAddress,
+        0n
       );
 
       const bobAfter = await ethers.provider.getBalance(bob.address);
@@ -339,6 +341,8 @@ describe("E2E: ZK Private Payments (real Poseidon)", function () {
         bobNullifier,
         amountBob,
         bob.address,
+        0n,
+        ethers.ZeroAddress,
         0n
       );
 
@@ -376,6 +380,8 @@ describe("E2E: ZK Private Payments (real Poseidon)", function () {
         nullifier,
         ethers.parseEther("1"),
         alice.address,
+        0n,
+        ethers.ZeroAddress,
         0n
       );
 
@@ -393,6 +399,8 @@ describe("E2E: ZK Private Payments (real Poseidon)", function () {
           nullifier,
           ethers.parseEther("1"),
           alice.address,
+          0n,
+          ethers.ZeroAddress,
           0n
         )
       ).to.be.revertedWith("ConfidentialPool: nullifier already spent");
@@ -518,7 +526,9 @@ describe("E2E: ZK Private Payments (real Poseidon)", function () {
         nullifier,
         withdrawAmount,
         bob.address,
-        changeCommitment
+        changeCommitment,
+        ethers.ZeroAddress,
+        0n
       );
 
       const bobAfter = await ethers.provider.getBalance(bob.address);
@@ -569,7 +579,9 @@ describe("E2E: ZK Private Payments (real Poseidon)", function () {
         nullifier,
         withdrawAmount,
         bob.address,
-        changeCommitment
+        changeCommitment,
+        ethers.ZeroAddress,
+        0n
       );
 
       const rootAfterWithdraw = await pool.getLastRoot();

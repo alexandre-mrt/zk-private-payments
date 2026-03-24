@@ -70,6 +70,8 @@ export function WithdrawCard() {
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [recipientInput, setRecipientInput] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [relayerInput, setRelayerInput] = useState("");
+  const [feeInput, setFeeInput] = useState("");
   const [step, setStep] = useState<WithdrawStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
@@ -111,6 +113,24 @@ export function WithdrawCard() {
       setError("Please enter a valid withdrawal amount.");
       return;
     }
+
+    const relayerTrimmed = relayerInput.trim();
+    const relayer: `0x${string}` = relayerTrimmed !== "" ? relayerTrimmed as `0x${string}` : "0x0000000000000000000000000000000000000000";
+    if (relayerTrimmed !== "" && !isAddress(relayerTrimmed)) {
+      setError("Please enter a valid relayer address.");
+      return;
+    }
+
+    const feeFloat = feeInput.trim() !== "" ? parseFloat(feeInput) : 0;
+    if (isNaN(feeFloat) || feeFloat < 0) {
+      setError("Please enter a valid fee amount (0 or positive).");
+      return;
+    }
+    if (feeFloat > 0 && relayerTrimmed === "") {
+      setError("A relayer address is required when fee is non-zero.");
+      return;
+    }
+    const feeWei = feeInput.trim() !== "" ? parseEther(feeInput) : 0n;
 
     const keypair = loadKeypair();
     if (!keypair) {
@@ -214,6 +234,8 @@ export function WithdrawCard() {
           withdrawAmountWei,
           recipient as `0x${string}`,
           changeCommitment,
+          relayer,
+          feeWei,
         ],
       });
 
@@ -229,6 +251,8 @@ export function WithdrawCard() {
     setStep("idle");
     setError(null);
     setTxHash(undefined);
+    setRelayerInput("");
+    setFeeInput("");
   };
 
   const isActive = ACTIVE_STEPS.includes(step as (typeof ACTIVE_STEPS)[number]);
@@ -305,6 +329,37 @@ export function WithdrawCard() {
             onChange={(e) => setRecipientInput(e.target.value)}
             disabled={isProcessing}
             className="font-mono text-xs"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm text-zinc-400">
+            Relayer Address{" "}
+            <span className="text-zinc-600">(optional)</span>
+          </label>
+          <Input
+            placeholder="0x... (leave empty for self-relay)"
+            value={relayerInput}
+            onChange={(e) => setRelayerInput(e.target.value)}
+            disabled={isProcessing}
+            className="font-mono text-xs"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm text-zinc-400">
+            Relayer Fee (ETH){" "}
+            <span className="text-zinc-600">(optional)</span>
+          </label>
+          <Input
+            type="number"
+            min="0"
+            step="0.001"
+            placeholder="0.00"
+            value={feeInput}
+            onChange={(e) => setFeeInput(e.target.value)}
+            disabled={isProcessing}
+            className="font-mono"
           />
         </div>
 
