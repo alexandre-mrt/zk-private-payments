@@ -28,11 +28,11 @@ Stretch Goals
 - [x] S6: Security hardening — ReentrancyGuard, Pausable, Ownable + 12 security tests
 - [x] S7: Gas benchmarks — 9 tests (deploy, deposit, transfer, withdraw, scaling)
 - [x] S8: GitHub Actions CI for both repos
-- [x] S9: Multi-denomination support — add/remove denominations, 12 new tests (124 total)
-- [x] S10: Code review running (background)
-- [ ] S11: Add NatSpec documentation to all contracts
-- [ ] S12: Add deployment verification script (verify contracts on Etherscan)
-- [ ] S13: Improve CLI error messages and help text
+- [x] S9: Multi-denomination support — 12 new tests (124 total)
+- [x] S10: Code review (background)
+- [x] S11: NatSpec documentation on all contracts
+- [ ] S12: Deployment verification script
+- [x] S13: CLI polish — help text, error messages, input validation, verbose flag
 
 ### Last Checkpoint
 f444df5 — all problems resolved, circuits/frontend/CLI aligned
