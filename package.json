@@ -8,6 +8,7 @@
     "node": "hardhat node",
     "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
     "deploy:sepolia": "hardhat run scripts/deploy.ts --network sepolia",
+    "verify:sepolia": "hardhat run scripts/verify.ts --network sepolia",
     "cli": "bun run cli/index.ts",
     "circuit:compile": "bash scripts/compile-circuit.sh",
     "circuit:verifier": "bash scripts/generate-verifier.sh"
