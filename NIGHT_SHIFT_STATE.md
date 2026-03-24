@@ -28,8 +28,11 @@ Stretch Goals
 - [x] S6: Security hardening — ReentrancyGuard, Pausable, Ownable + 12 security tests
 - [x] S7: Gas benchmarks — 9 tests (deploy, deposit, transfer, withdraw, scaling)
 - [x] S8: GitHub Actions CI for both repos
-- [ ] S9: Add multi-denomination support to ConfidentialPool
-- [ ] S10: Code review both projects before morning
+- [x] S9: Multi-denomination support — add/remove denominations, 12 new tests (124 total)
+- [x] S10: Code review running (background)
+- [ ] S11: Add NatSpec documentation to all contracts
+- [ ] S12: Add deployment verification script (verify contracts on Etherscan)
+- [ ] S13: Improve CLI error messages and help text
 
 ### Last Checkpoint
 f444df5 — all problems resolved, circuits/frontend/CLI aligned
