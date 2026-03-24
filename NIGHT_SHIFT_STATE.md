@@ -20,14 +20,16 @@ Stretch Goals
 - [x] P-FIX: All 6 NIGHT_SHIFT_PROBLEMS resolved (commitment scheme, signal names, paths, stealth scan)
 
 #### Part 3: Stretch Goals
-- [x] S1: E2E integration tests — 12 tests with real Poseidon (78 total passing)
-- [ ] S2: Polish zk-mixer — add E2E test with real Poseidon hashing
-- [ ] S3: Add comprehensive CLI tests for zk-private-payments
-- [ ] S4: Frontend polish — error boundaries, loading skeletons, mobile responsive
-- [ ] S5: Add contract events indexing helper (shared between CLI and frontend)
+- [x] S1: E2E integration tests — 12 tests with real Poseidon (103 total passing)
+- [x] S2: Mixer E2E tests — 18 tests with real Poseidon (59 total passing)
+- [x] S3: CLI crypto/merkle/stealth unit tests — 25 tests (103 total)
+- [x] S4: Frontend polish — error boundary, loading skeletons, toast, responsive, wallet check
+- [x] S5: EventIndexer shared module (deposits, transfers, withdrawals, stats)
 - [x] S6: Security hardening — ReentrancyGuard, Pausable, Ownable + 12 security tests
-- [ ] S7: Add gas optimization tests and benchmarks
+- [x] S7: Gas benchmarks — 9 tests (deploy, deposit, transfer, withdraw, scaling)
 - [x] S8: GitHub Actions CI for both repos
+- [ ] S9: Add multi-denomination support to ConfidentialPool
+- [ ] S10: Code review both projects before morning
 
 ### Last Checkpoint
 f444df5 — all problems resolved, circuits/frontend/CLI aligned
