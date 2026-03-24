@@ -116,6 +116,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @dev When set to 0, no per-transaction cap is enforced.
     uint256 public maxWithdrawAmount;
 
+    /// @notice Whether the depositor allowlist is active
+    /// @dev When false (default), any address may deposit. When true, only allowlisted addresses may deposit.
+    bool public allowlistEnabled;
+
+    /// @notice Tracks addresses approved to deposit when the allowlist is active
+    /// @dev Maps address → true if allowed to deposit
+    mapping(address => bool) public allowlisted;
+
     /// @notice Emitted when a new note commitment is deposited into the pool
     /// @param commitment  Poseidon commitment of the new note
     /// @param leafIndex   Position in the Merkle tree where the commitment was inserted
@@ -170,6 +178,15 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @param to      Recipient address that received the funds
     /// @param amount  ETH amount in wei transferred
     event EmergencyDrain(address indexed to, uint256 amount);
+
+    /// @notice Emitted when the depositor allowlist is enabled or disabled
+    /// @param enabled New state of the allowlist
+    event AllowlistToggled(bool enabled);
+
+    /// @notice Emitted when an account is added to or removed from the allowlist
+    /// @param account The account whose status changed
+    /// @param allowed Whether the account is now allowed
+    event AllowlistUpdated(address indexed account, bool allowed);
 
     /// @notice Deploys the pool and wires up both verifiers and the Merkle tree
     /// @param _transferVerifier  Address of the deployed ITransferVerifier contract
@@ -236,6 +253,35 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         emit EmergencyDrain(_to, balance);
     }
 
+    /// @notice Enables or disables the depositor allowlist
+    /// @dev When enabled, only addresses in `allowlisted` may call `deposit` or `batchDeposit`.
+    ///      Only callable by the owner.
+    /// @param _enabled True to enable the allowlist, false to disable it
+    function setAllowlistEnabled(bool _enabled) external onlyOwner {
+        allowlistEnabled = _enabled;
+        emit AllowlistToggled(_enabled);
+    }
+
+    /// @notice Adds or removes a single address from the depositor allowlist
+    /// @dev Only callable by the owner.
+    /// @param _account Address to update
+    /// @param _allowed True to allow, false to revoke
+    function setAllowlisted(address _account, bool _allowed) external onlyOwner {
+        allowlisted[_account] = _allowed;
+        emit AllowlistUpdated(_account, _allowed);
+    }
+
+    /// @notice Adds or removes multiple addresses from the depositor allowlist in one call
+    /// @dev Only callable by the owner.
+    /// @param _accounts Array of addresses to update
+    /// @param _allowed  True to allow all, false to revoke all
+    function batchSetAllowlisted(address[] calldata _accounts, bool _allowed) external onlyOwner {
+        for (uint256 i = 0; i < _accounts.length; i++) {
+            allowlisted[_accounts[i]] = _allowed;
+            emit AllowlistUpdated(_accounts[i], _allowed);
+        }
+    }
+
     /// @notice Adds a denomination to the allow-list
     /// @dev When the list is non-empty, deposits must match an allowed denomination.
     ///      Only callable by the owner. Reverts if the denomination is already present.
@@ -273,6 +319,9 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     ///      valid field element and must not already exist in the tree.
     /// @param _commitment Poseidon(amount, blinding, ownerPubKeyX) — the note commitment
     function deposit(uint256 _commitment) external payable nonReentrant whenNotPaused {
+        if (allowlistEnabled) {
+            require(allowlisted[msg.sender], "ConfidentialPool: sender not allowlisted");
+        }
         require(msg.value > 0, "ConfidentialPool: zero deposit");
         if (denominationList.length > 0) {
             require(
@@ -297,6 +346,9 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint256[] calldata _commitments,
         uint256[] calldata _amounts
     ) external payable nonReentrant whenNotPaused {
+        if (allowlistEnabled) {
+            require(allowlisted[msg.sender], "ConfidentialPool: sender not allowlisted");
+        }
         require(_commitments.length == _amounts.length, "ConfidentialPool: arrays length mismatch");
         require(_commitments.length > 0, "ConfidentialPool: empty batch");
         require(_commitments.length <= 10, "ConfidentialPool: batch too large");

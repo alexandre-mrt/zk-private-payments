@@ -365,4 +365,142 @@ describe("ConfidentialPool — Security", function () {
       ).to.not.be.reverted;
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Allowlist
+  // -------------------------------------------------------------------------
+
+  describe("Allowlist", function () {
+    it("allowlist is disabled by default", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.allowlistEnabled()).to.be.false;
+    });
+
+    it("deposit succeeds for any address when allowlist is disabled", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") })
+      ).to.not.be.reverted;
+    });
+
+    it("deposit reverts for non-allowlisted address when allowlist is enabled", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).setAllowlistEnabled(true);
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("ConfidentialPool: sender not allowlisted");
+    });
+
+    it("deposit succeeds for allowlisted address when allowlist is enabled", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).setAllowlistEnabled(true);
+      await pool.connect(owner).setAllowlisted(alice.address, true);
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") })
+      ).to.not.be.reverted;
+    });
+
+    it("batchDeposit reverts for non-allowlisted address when allowlist is enabled", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).setAllowlistEnabled(true);
+      const commitments = [randomCommitment(), randomCommitment()];
+      const amounts = [ethers.parseEther("1"), ethers.parseEther("1")];
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, {
+          value: ethers.parseEther("2"),
+        })
+      ).to.be.revertedWith("ConfidentialPool: sender not allowlisted");
+    });
+
+    it("batchDeposit succeeds for allowlisted address when allowlist is enabled", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).setAllowlistEnabled(true);
+      await pool.connect(owner).setAllowlisted(alice.address, true);
+      const commitments = [randomCommitment(), randomCommitment()];
+      const amounts = [ethers.parseEther("1"), ethers.parseEther("1")];
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, {
+          value: ethers.parseEther("2"),
+        })
+      ).to.not.be.reverted;
+    });
+
+    it("batchSetAllowlisted grants access to multiple addresses", async function () {
+      const { pool, owner, alice, bob } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).setAllowlistEnabled(true);
+      await pool.connect(owner).batchSetAllowlisted([alice.address, bob.address], true);
+      expect(await pool.allowlisted(alice.address)).to.be.true;
+      expect(await pool.allowlisted(bob.address)).to.be.true;
+    });
+
+    it("batchSetAllowlisted revokes access from multiple addresses", async function () {
+      const { pool, owner, alice, bob } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).setAllowlistEnabled(true);
+      await pool.connect(owner).batchSetAllowlisted([alice.address, bob.address], true);
+      await pool.connect(owner).batchSetAllowlisted([alice.address, bob.address], false);
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("ConfidentialPool: sender not allowlisted");
+      await expect(
+        pool.connect(bob).deposit(randomCommitment(), { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("ConfidentialPool: sender not allowlisted");
+    });
+
+    it("disabling allowlist allows anyone to deposit again", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).setAllowlistEnabled(true);
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("ConfidentialPool: sender not allowlisted");
+      await pool.connect(owner).setAllowlistEnabled(false);
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") })
+      ).to.not.be.reverted;
+    });
+
+    it("only owner can enable allowlist", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).setAllowlistEnabled(true)
+      ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+    });
+
+    it("only owner can set individual allowlist entry", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).setAllowlisted(bob.address, true)
+      ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+    });
+
+    it("only owner can batch set allowlist", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).batchSetAllowlisted([bob.address], true)
+      ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
+    });
+
+    it("setAllowlistEnabled emits AllowlistToggled event", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      await expect(pool.connect(owner).setAllowlistEnabled(true))
+        .to.emit(pool, "AllowlistToggled")
+        .withArgs(true);
+      await expect(pool.connect(owner).setAllowlistEnabled(false))
+        .to.emit(pool, "AllowlistToggled")
+        .withArgs(false);
+    });
+
+    it("setAllowlisted emits AllowlistUpdated event", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await expect(pool.connect(owner).setAllowlisted(alice.address, true))
+        .to.emit(pool, "AllowlistUpdated")
+        .withArgs(alice.address, true);
+    });
+
+    it("batchSetAllowlisted emits AllowlistUpdated for each account", async function () {
+      const { pool, owner, alice, bob } = await loadFixture(deployPoolFixture);
+      const tx = await pool.connect(owner).batchSetAllowlisted([alice.address, bob.address], true);
+      await expect(tx).to.emit(pool, "AllowlistUpdated").withArgs(alice.address, true);
+      await expect(tx).to.emit(pool, "AllowlistUpdated").withArgs(bob.address, true);
+    });
+  });
 });
