@@ -925,7 +925,149 @@ describe("ConfidentialPool", function () {
   });
 
   // -------------------------------------------------------------------------
-  // 6. Denominations
+  // 6. BatchDeposit
+  // -------------------------------------------------------------------------
+
+  describe("BatchDeposit", function () {
+    it("deposits 3 notes: commitments stored, events emitted, root changes", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitments = [randomCommitment(), randomCommitment(), randomCommitment()];
+      const amounts = [
+        ethers.parseEther("1"),
+        ethers.parseEther("2"),
+        ethers.parseEther("0.5"),
+      ];
+      const totalAmount = amounts.reduce((a, b) => a + b, 0n);
+
+      const rootBefore = await pool.getLastRoot();
+
+      const tx = await pool.connect(alice).batchDeposit(commitments, amounts, { value: totalAmount });
+      const receipt = await tx.wait();
+
+      // All commitments stored
+      for (const c of commitments) {
+        expect(await pool.commitments(c)).to.be.true;
+      }
+
+      // nextIndex advanced by 3
+      expect(await pool.nextIndex()).to.equal(3);
+
+      // Root changed
+      const rootAfter = await pool.getLastRoot();
+      expect(rootAfter).to.not.equal(rootBefore);
+
+      // 3 Deposit events emitted
+      const depositEvents = receipt!.logs.filter(
+        (log) => pool.interface.parseLog(log)?.name === "Deposit"
+      );
+      expect(depositEvents.length).to.equal(3);
+    });
+
+    it("reverts when total amount does not match msg.value", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitments = [randomCommitment(), randomCommitment()];
+      const amounts = [ethers.parseEther("1"), ethers.parseEther("1")];
+
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("ConfidentialPool: incorrect total amount");
+    });
+
+    it("reverts when a commitment is duplicated within the batch", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const c = randomCommitment();
+      const commitments = [c, c];
+      const amounts = [ethers.parseEther("1"), ethers.parseEther("1")];
+
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, { value: ethers.parseEther("2") })
+      ).to.be.revertedWith("ConfidentialPool: duplicate commitment");
+    });
+
+    it("reverts when a commitment was already deposited individually", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const c = randomCommitment();
+      await pool.connect(alice).deposit(c, { value: ethers.parseEther("1") });
+
+      const commitments = [randomCommitment(), c];
+      const amounts = [ethers.parseEther("1"), ethers.parseEther("1")];
+
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, { value: ethers.parseEther("2") })
+      ).to.be.revertedWith("ConfidentialPool: duplicate commitment");
+    });
+
+    it("reverts when batch is empty", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).batchDeposit([], [], { value: 0n })
+      ).to.be.revertedWith("ConfidentialPool: empty batch");
+    });
+
+    it("reverts when batch exceeds 10 commitments", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitments = Array.from({ length: 11 }, () => randomCommitment());
+      const amounts = Array.from({ length: 11 }, () => ethers.parseEther("1"));
+      const total = ethers.parseEther("11");
+
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, { value: total })
+      ).to.be.revertedWith("ConfidentialPool: batch too large");
+    });
+
+    it("reverts when arrays have different lengths", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitments = [randomCommitment(), randomCommitment()];
+      const amounts = [ethers.parseEther("1")];
+
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("ConfidentialPool: arrays length mismatch");
+    });
+
+    it("respects denomination restrictions", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      const d = ethers.parseEther("1");
+      await pool.connect(owner).addDenomination(d);
+
+      const commitments = [randomCommitment(), randomCommitment()];
+      const amounts = [d, ethers.parseEther("0.5")]; // second is not allowed
+      const total = d + ethers.parseEther("0.5");
+
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, { value: total })
+      ).to.be.revertedWith("ConfidentialPool: amount not an allowed denomination");
+    });
+
+    it("accepts batch when all amounts match allowed denomination", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      const d = ethers.parseEther("1");
+      await pool.connect(owner).addDenomination(d);
+
+      const commitments = [randomCommitment(), randomCommitment()];
+      const amounts = [d, d];
+      const total = d * 2n;
+
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, { value: total })
+      ).to.emit(pool, "Deposit");
+    });
+
+    it("reverts when paused", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).pause();
+
+      const commitments = [randomCommitment()];
+      const amounts = [ethers.parseEther("1")];
+
+      await expect(
+        pool.connect(alice).batchDeposit(commitments, amounts, { value: ethers.parseEther("1") })
+      ).to.be.revertedWithCustomError(pool, "EnforcedPause");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 7. Denominations
   // -------------------------------------------------------------------------
 
   describe("Denominations", function () {

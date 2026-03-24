@@ -42,6 +42,16 @@ export const POOL_ABI = [
   },
   {
     type: "function",
+    name: "batchDeposit",
+    inputs: [
+      { name: "commitments", type: "uint256[]" },
+      { name: "amounts", type: "uint256[]" },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
     name: "getLastRoot",
     inputs: [],
     outputs: [{ type: "uint256" }],

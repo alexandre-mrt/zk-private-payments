@@ -188,6 +188,26 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         withdrawVerifier = IWithdrawVerifier(_withdrawVerifier);
     }
 
+    /// @notice Check if a nullifier has been spent
+    function isSpent(uint256 _nullifier) external view returns (bool) {
+        return nullifiers[_nullifier];
+    }
+
+    /// @notice Check if a commitment exists
+    function isCommitted(uint256 _commitment) external view returns (bool) {
+        return commitments[_commitment];
+    }
+
+    /// @notice Get the current deposit count
+    function getDepositCount() external view returns (uint32) {
+        return nextIndex;
+    }
+
+    /// @notice Get pool balance
+    function getPoolBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+
     /// @notice Pauses all deposit, transfer, and withdrawal operations
     /// @dev Only callable by the owner. Use in emergencies to halt the pool.
     function pause() external onlyOwner { _pause(); }
@@ -268,6 +288,40 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         commitments[_commitment] = true;
 
         emit Deposit(_commitment, insertedIndex, msg.value, block.timestamp);
+    }
+
+    /// @notice Deposit multiple notes in a single transaction for gas efficiency.
+    /// @param _commitments Array of note commitments
+    /// @param _amounts Array of ETH amounts for each commitment
+    function batchDeposit(
+        uint256[] calldata _commitments,
+        uint256[] calldata _amounts
+    ) external payable nonReentrant whenNotPaused {
+        require(_commitments.length == _amounts.length, "ConfidentialPool: arrays length mismatch");
+        require(_commitments.length > 0, "ConfidentialPool: empty batch");
+        require(_commitments.length <= 10, "ConfidentialPool: batch too large");
+
+        uint256 totalAmount = 0;
+        for (uint256 i = 0; i < _amounts.length; i++) {
+            totalAmount += _amounts[i];
+        }
+        require(msg.value == totalAmount, "ConfidentialPool: incorrect total amount");
+
+        for (uint256 i = 0; i < _commitments.length; i++) {
+            require(_commitments[i] != 0, "ConfidentialPool: zero commitment");
+            require(_commitments[i] < FIELD_SIZE, "ConfidentialPool: commitment >= field size");
+            require(!commitments[_commitments[i]], "ConfidentialPool: duplicate commitment");
+            require(_amounts[i] > 0, "ConfidentialPool: zero amount in batch");
+
+            if (denominationList.length > 0) {
+                require(allowedDenominations[_amounts[i]], "ConfidentialPool: amount not an allowed denomination");
+            }
+
+            uint32 insertedIndex = _insert(_commitments[i]);
+            commitments[_commitments[i]] = true;
+
+            emit Deposit(_commitments[i], insertedIndex, _amounts[i], block.timestamp);
+        }
     }
 
     /// @notice Executes a confidential transfer: spends one input note and creates two output notes
