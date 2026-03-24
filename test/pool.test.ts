@@ -1067,7 +1067,108 @@ describe("ConfidentialPool", function () {
   });
 
   // -------------------------------------------------------------------------
-  // 7. Denominations
+  // 7. View / Getter functions
+  // -------------------------------------------------------------------------
+
+  describe("View functions", function () {
+    it("isSpent returns false before any withdrawal", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const nullifier = randomCommitment();
+      expect(await pool.isSpent(nullifier)).to.be.false;
+    });
+
+    it("isSpent returns true after withdrawal", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
+      const nullifier = randomCommitment();
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        nullifier,
+        ethers.parseEther("1"),
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+      expect(await pool.isSpent(nullifier)).to.be.true;
+    });
+
+    it("isCommitted returns false before deposit", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      expect(await pool.isCommitted(commitment)).to.be.false;
+    });
+
+    it("isCommitted returns true after deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      await pool.connect(alice).deposit(commitment, { value: ethers.parseEther("1") });
+      expect(await pool.isCommitted(commitment)).to.be.true;
+    });
+
+    it("getDepositCount returns 0 before any deposit", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.getDepositCount()).to.equal(0);
+    });
+
+    it("getDepositCount increments with each deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      expect(await pool.getDepositCount()).to.equal(1);
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      expect(await pool.getDepositCount()).to.equal(2);
+    });
+
+    it("getDepositCount matches nextIndex", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      expect(await pool.getDepositCount()).to.equal(await pool.nextIndex());
+    });
+
+    it("getPoolBalance returns 0 before any deposit", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.getPoolBalance()).to.equal(0n);
+    });
+
+    it("getPoolBalance matches contract ETH balance after deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const value = ethers.parseEther("2.5");
+      await pool.connect(alice).deposit(randomCommitment(), { value });
+      expect(await pool.getPoolBalance()).to.equal(value);
+      expect(await pool.getPoolBalance()).to.equal(
+        await ethers.provider.getBalance(await pool.getAddress())
+      );
+    });
+
+    it("getPoolBalance decreases after withdrawal", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const depositValue = ethers.parseEther("2");
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), depositValue);
+      const withdrawAmount = ethers.parseEther("1");
+
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        withdrawAmount,
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+
+      expect(await pool.getPoolBalance()).to.equal(depositValue - withdrawAmount);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 8. Denominations
   // -------------------------------------------------------------------------
 
   describe("Denominations", function () {
