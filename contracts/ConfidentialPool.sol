@@ -93,6 +93,9 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Verifier for the withdraw circuit
     IWithdrawVerifier public immutable withdrawVerifier;
 
+    /// @notice Chain ID at deployment time — used to prevent cross-chain replay attacks.
+    uint256 public immutable deployedChainId;
+
     /// @notice Tracks spent nullifiers to prevent double-spending
     /// @dev Maps nullifier hash → true once the corresponding note has been spent
     mapping(uint256 => bool) public nullifiers;
@@ -215,6 +218,13 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         require(_withdrawVerifier != address(0), "ConfidentialPool: zero withdraw verifier");
         transferVerifier = ITransferVerifier(_transferVerifier);
         withdrawVerifier = IWithdrawVerifier(_withdrawVerifier);
+        deployedChainId = block.chainid;
+    }
+
+    /// @notice Reverts if the current chain differs from the deployment chain.
+    modifier onlyDeployedChain() {
+        require(block.chainid == deployedChainId, "wrong chain");
+        _;
     }
 
     /// @notice Check if a nullifier has been spent
@@ -339,7 +349,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     ///      `msg.value` must match exactly one allowed denomination. The commitment must be a
     ///      valid field element and must not already exist in the tree.
     /// @param _commitment Poseidon(amount, blinding, ownerPubKeyX) — the note commitment
-    function deposit(uint256 _commitment) external payable nonReentrant whenNotPaused {
+    function deposit(uint256 _commitment) external payable nonReentrant whenNotPaused onlyDeployedChain {
         if (allowlistEnabled) {
             require(allowlisted[msg.sender], "ConfidentialPool: sender not allowlisted");
         }
@@ -367,7 +377,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     function batchDeposit(
         uint256[] calldata _commitments,
         uint256[] calldata _amounts
-    ) external payable nonReentrant whenNotPaused {
+    ) external payable nonReentrant whenNotPaused onlyDeployedChain {
         if (allowlistEnabled) {
             require(allowlisted[msg.sender], "ConfidentialPool: sender not allowlisted");
         }
@@ -423,7 +433,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint256 _nullifier,
         uint256 _outputCommitment1,
         uint256 _outputCommitment2
-    ) external nonReentrant whenNotPaused {
+    ) external nonReentrant whenNotPaused onlyDeployedChain {
         require(!nullifiers[_nullifier], "ConfidentialPool: nullifier already spent");
         require(isKnownRoot(_root), "ConfidentialPool: unknown root");
         require(
@@ -498,7 +508,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint256 _changeCommitment,
         address payable _relayer,
         uint256 _fee
-    ) external nonReentrant whenNotPaused {
+    ) external nonReentrant whenNotPaused onlyDeployedChain {
         require(_fee <= _amount, "ConfidentialPool: fee exceeds amount");
         require(!nullifiers[_nullifier], "ConfidentialPool: nullifier already spent");
         require(isKnownRoot(_root), "ConfidentialPool: unknown root");

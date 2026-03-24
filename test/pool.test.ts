@@ -126,6 +126,19 @@ describe("ConfidentialPool", function () {
       ).to.be.revertedWith("ConfidentialPool: zero transfer verifier");
     });
 
+    it("stores the deployment chain ID (31337 for Hardhat)", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.deployedChainId()).to.equal(31337n);
+    });
+
+    it("deposit succeeds on the correct chain", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      await expect(
+        pool.connect(alice).deposit(commitment, { value: ethers.parseEther("1") })
+      ).to.emit(pool, "Deposit");
+    });
+
     it("reverts when withdrawVerifier is zero address", async function () {
       const hasherAddress = await deployHasher();
       const TransferVerifier =
