@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { deriveSharedSecret } from "./crypto.js";
+import { deriveSharedSecret, decryptNoteData } from "./crypto.js";
 import { buildPoseidon, buildBabyjub } from "circomlibjs";
 import {
   getProvider,
@@ -55,6 +55,10 @@ Examples:
         const babyjub = await buildBabyjub();
         const bjF = babyjub.F;
 
+        const existingNoteCommitments = new Set(
+          loadAllNotes().map((n) => n.commitment.toString())
+        );
+
         let stealthFound = 0;
         for (const event of stealthEvents) {
           const txLog = registry.interface.parseLog(event);
@@ -66,10 +70,10 @@ Examples:
           const commitment = BigInt(txLog.args["commitment"].toString());
 
           // Full stealth address derivation:
-          // 1. sharedSecret = viewingKey * ephemeralPubKey
-          const shared = await deriveSharedSecret(keys.viewingKey, ephPubKeyX, ephPubKeyY);
-          // 2. stealthScalar = Poseidon(sharedSecret.x)
-          const stealthScalar = pF.toObject(poseidon([shared.x]));
+          // 1. sharedPoint = viewingKey * ephemeralPubKey  (raw ECDH point, not hashed)
+          const sharedPoint = await deriveSharedSecret(keys.viewingKey, ephPubKeyX, ephPubKeyY);
+          // 2. stealthScalar = Poseidon(sharedPoint.x)
+          const stealthScalar = pF.toObject(poseidon([sharedPoint.x]));
           // 3. stealthPoint = stealthScalar * G + spendingPubKey
           const scalarG = babyjub.mulPointEscalar(babyjub.Base8, stealthScalar);
           const spendPoint: [unknown, unknown] = [
@@ -83,6 +87,34 @@ Examples:
           if (derivedX === stealthPubKeyX) {
             log.success(`Found matching stealth payment, commitment: ${commitment}`);
             stealthFound++;
+
+            // Decrypt note data if provided and not already known
+            const hasEncryptedData =
+              txLog.args["encryptedAmount"] !== undefined &&
+              txLog.args["encryptedBlinding"] !== undefined;
+
+            if (hasEncryptedData && !existingNoteCommitments.has(commitment.toString())) {
+              const encryptedAmount = BigInt(txLog.args["encryptedAmount"].toString());
+              const encryptedBlinding = BigInt(txLog.args["encryptedBlinding"].toString());
+
+              // Decrypt using the raw shared point (same key = Poseidon(sharedPoint.x, sharedPoint.y))
+              const { amount, blinding } = await decryptNoteData(
+                encryptedAmount,
+                encryptedBlinding,
+                sharedPoint.x,
+                sharedPoint.y
+              );
+
+              saveNote({
+                amount,
+                blinding,
+                ownerPubKeyX: stealthPubKeyX,
+                commitment,
+                createdAt: new Date().toISOString(),
+              });
+              log.step(`  Decrypted and saved note for commitment ${commitment}`);
+              log.step(`  amount: ${amount.toString()}, blinding: ${blinding.toString()}`);
+            }
           }
         }
 

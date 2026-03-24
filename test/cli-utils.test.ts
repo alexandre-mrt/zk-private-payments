@@ -380,4 +380,155 @@ describe("CLI Crypto Utils", function () {
       expect(sharedX).to.be.greaterThan(0n);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Encrypted Note Broadcasting (matching cli/crypto.ts encryptNoteData / decryptNoteData)
+  //
+  // key               = Poseidon(sharedPoint.x, sharedPoint.y)
+  // encryptedAmount   = amount   XOR (key AND UINT64_MASK)
+  // encryptedBlinding = blinding XOR key
+  // ---------------------------------------------------------------------------
+  describe("Encrypted Note Broadcasting", () => {
+    const UINT64_MASK = (1n << 64n) - 1n;
+
+    function deriveKey(sharedX: bigint, sharedY: bigint): bigint {
+      return F.toObject(poseidon([sharedX, sharedY]));
+    }
+
+    function encrypt(
+      amount: bigint,
+      blinding: bigint,
+      sharedX: bigint,
+      sharedY: bigint
+    ): { encryptedAmount: bigint; encryptedBlinding: bigint } {
+      const key = deriveKey(sharedX, sharedY);
+      return {
+        encryptedAmount: amount ^ (key & UINT64_MASK),
+        encryptedBlinding: blinding ^ key,
+      };
+    }
+
+    function decrypt(
+      encryptedAmount: bigint,
+      encryptedBlinding: bigint,
+      sharedX: bigint,
+      sharedY: bigint
+    ): { amount: bigint; blinding: bigint } {
+      const key = deriveKey(sharedX, sharedY);
+      return {
+        amount: encryptedAmount ^ (key & UINT64_MASK),
+        blinding: encryptedBlinding ^ key,
+      };
+    }
+
+    it("encrypt then decrypt recovers original amount and blinding", () => {
+      const viewingKey = 111n;
+      const ephemeralKey = 333n;
+
+      const viewPub = babyjub.mulPointEscalar(babyjub.Base8, viewingKey);
+      const sharedRaw = babyjub.mulPointEscalar(viewPub, ephemeralKey);
+      const sharedX = babyjub.F.toObject(sharedRaw[0]);
+      const sharedY = babyjub.F.toObject(sharedRaw[1]);
+
+      // 1 ETH in wei
+      const amount = 1_000_000_000_000_000_000n;
+      const blinding = 0xdeadbeefcafebaben;
+
+      const { encryptedAmount, encryptedBlinding } = encrypt(amount, blinding, sharedX, sharedY);
+      const { amount: decAmt, blinding: decBlind } = decrypt(
+        encryptedAmount,
+        encryptedBlinding,
+        sharedX,
+        sharedY
+      );
+
+      expect(decAmt).to.equal(amount);
+      expect(decBlind).to.equal(blinding);
+    });
+
+    it("ECDH symmetry: sender and receiver derive the same encryption key", () => {
+      const viewingKey = 777n;
+      const ephemeralKey = 888n;
+
+      const viewPub = babyjub.mulPointEscalar(babyjub.Base8, viewingKey);
+      const ephPub = babyjub.mulPointEscalar(babyjub.Base8, ephemeralKey);
+
+      // Sender: ephemeralKey * viewPub
+      const senderShared = babyjub.mulPointEscalar(viewPub, ephemeralKey);
+      const senderKey = deriveKey(
+        babyjub.F.toObject(senderShared[0]),
+        babyjub.F.toObject(senderShared[1])
+      );
+
+      // Receiver: viewingKey * ephPub
+      const receiverShared = babyjub.mulPointEscalar(ephPub, viewingKey);
+      const receiverKey = deriveKey(
+        babyjub.F.toObject(receiverShared[0]),
+        babyjub.F.toObject(receiverShared[1])
+      );
+
+      expect(senderKey).to.equal(receiverKey);
+    });
+
+    it("different shared points produce different encryption keys", () => {
+      const viewingKey1 = 100n;
+      const viewingKey2 = 200n;
+      const eph = 300n;
+
+      const viewPub1 = babyjub.mulPointEscalar(babyjub.Base8, viewingKey1);
+      const viewPub2 = babyjub.mulPointEscalar(babyjub.Base8, viewingKey2);
+
+      const shared1 = babyjub.mulPointEscalar(viewPub1, eph);
+      const shared2 = babyjub.mulPointEscalar(viewPub2, eph);
+
+      const key1 = deriveKey(babyjub.F.toObject(shared1[0]), babyjub.F.toObject(shared1[1]));
+      const key2 = deriveKey(babyjub.F.toObject(shared2[0]), babyjub.F.toObject(shared2[1]));
+
+      expect(key1).to.not.equal(key2);
+    });
+
+    it("encrypted amount and blinding differ from plaintext", () => {
+      const viewingKey = 555n;
+      const eph = 666n;
+
+      const viewPub = babyjub.mulPointEscalar(babyjub.Base8, viewingKey);
+      const sharedRaw = babyjub.mulPointEscalar(viewPub, eph);
+      const sharedX = babyjub.F.toObject(sharedRaw[0]);
+      const sharedY = babyjub.F.toObject(sharedRaw[1]);
+
+      const amount = 500_000_000_000_000_000n; // 0.5 ETH in wei
+      const blinding = 123456789n;
+
+      const { encryptedAmount, encryptedBlinding } = encrypt(amount, blinding, sharedX, sharedY);
+
+      expect(encryptedAmount).to.not.equal(amount);
+      expect(encryptedBlinding).to.not.equal(blinding);
+    });
+
+    it("amount is masked to UINT64 before XOR (high key bits do not affect encrypted amount)", () => {
+      // Verify the UINT64 masking: key & UINT64_MASK must equal key when key < 2^64
+      // and otherwise truncates to lower 64 bits
+      const sharedX = 12345678901234567890n;
+      const sharedY = 98765432109876543210n;
+      const key = deriveKey(sharedX, sharedY);
+
+      const amount = 42n;
+      const { encryptedAmount } = encrypt(amount, 0n, sharedX, sharedY);
+
+      // Decrypt with explicit masking
+      const decryptedAmount = encryptedAmount ^ (key & UINT64_MASK);
+      expect(decryptedAmount).to.equal(amount);
+    });
+
+    it("zero amount and blinding encrypt and decrypt correctly", () => {
+      const sharedX = 111n;
+      const sharedY = 222n;
+
+      const { encryptedAmount, encryptedBlinding } = encrypt(0n, 0n, sharedX, sharedY);
+      const { amount, blinding } = decrypt(encryptedAmount, encryptedBlinding, sharedX, sharedY);
+
+      expect(amount).to.equal(0n);
+      expect(blinding).to.equal(0n);
+    });
+  });
 });

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { ethers } from "ethers";
-import { createNote, deriveStealthKeypair } from "./crypto.js";
+import { createNote, deriveStealthKeypair, encryptNoteData } from "./crypto.js";
 import {
   getProvider,
   getWallet,
@@ -96,7 +96,7 @@ Examples:
           });
           log.success(`Note saved to notes/${note.commitment}.json`);
 
-          // Optional stealth announcement
+          // Optional stealth announcement with encrypted note data
           if (opts.to && opts.toY) {
             const recipientPubKeyX = BigInt(opts.to);
             const recipientPubKeyY = BigInt(opts.toY);
@@ -104,13 +104,23 @@ Examples:
             log.info("Announcing stealth payment...");
             const stealth = await deriveStealthKeypair(recipientPubKeyX, recipientPubKeyY);
 
+            // Encrypt note data so the receiver can reconstruct the note from the event
+            const { encryptedAmount, encryptedBlinding } = await encryptNoteData(
+              note.amount,
+              note.blinding,
+              stealth.sharedPointX,
+              stealth.sharedPointY
+            );
+
             const registry = getStealthRegistry(wallet);
             const announceTx = await registry["announceStealthPayment"](
               note.commitment,
               stealth.ephemeralPubKeyX,
               stealth.ephemeralPubKeyY,
               stealth.stealthPubKeyX,
-              stealth.stealthPubKeyY
+              stealth.stealthPubKeyY,
+              encryptedAmount,
+              encryptedBlinding
             );
             await announceTx.wait();
             log.success(`Stealth payment announced: ${announceTx.hash}`);
