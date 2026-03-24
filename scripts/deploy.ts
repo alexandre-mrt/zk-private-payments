@@ -58,6 +58,19 @@ async function main(): Promise<void> {
   await pool.waitForDeployment();
   console.log("ConfidentialPool deployed to:", await pool.getAddress());
 
+  // 5. Configure default denominations
+  console.log("\nConfiguring default denominations...");
+  const denominations = [
+    ethers.parseEther("0.01"),
+    ethers.parseEther("0.1"),
+    ethers.parseEther("1"),
+    ethers.parseEther("10"),
+  ];
+  for (const d of denominations) {
+    await pool.addDenomination(d);
+    console.log(`  Added denomination: ${ethers.formatEther(d)} ETH`);
+  }
+
   // Save addresses
   const addresses = {
     hasher: hasherAddress,
