@@ -1,0 +1,818 @@
+import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { deployHasher } from "./helpers/hasher";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const FIELD_SIZE =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+
+const ZERO_PROOF = {
+  pA: [0n, 0n] as [bigint, bigint],
+  pB: [
+    [0n, 0n],
+    [0n, 0n],
+  ] as [[bigint, bigint], [bigint, bigint]],
+  pC: [0n, 0n] as [bigint, bigint],
+};
+
+// Produces a random field element (31 bytes ensures < FIELD_SIZE)
+function randomCommitment(): bigint {
+  return ethers.toBigInt(ethers.randomBytes(31));
+}
+
+// ---------------------------------------------------------------------------
+// Fixture
+// ---------------------------------------------------------------------------
+
+async function deployPoolFixture() {
+  const [owner, alice, bob, relayer] = await ethers.getSigners();
+
+  const hasherAddress = await deployHasher();
+
+  const TransferVerifier =
+    await ethers.getContractFactory("TransferVerifier");
+  const transferVerifier = await TransferVerifier.deploy();
+
+  const WithdrawVerifier =
+    await ethers.getContractFactory("WithdrawVerifier");
+  const withdrawVerifier = await WithdrawVerifier.deploy();
+
+  const Pool = await ethers.getContractFactory("ConfidentialPool");
+  const pool = await Pool.deploy(
+    await transferVerifier.getAddress(),
+    await withdrawVerifier.getAddress(),
+    5, // small tree for tests (32 leaves)
+    hasherAddress
+  );
+
+  return { pool, owner, alice, bob, relayer };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Deposits into the pool and returns the current (post-deposit) root.
+ */
+async function depositAndGetRoot(
+  pool: Awaited<ReturnType<typeof deployPoolFixture>>["pool"],
+  signer: Awaited<ReturnType<typeof deployPoolFixture>>["alice"],
+  commitment: bigint,
+  value: bigint = ethers.parseEther("1")
+) {
+  await pool.connect(signer).deposit(commitment, { value });
+  return pool.getLastRoot();
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("ConfidentialPool", function () {
+  // -------------------------------------------------------------------------
+  // 1. Deployment
+  // -------------------------------------------------------------------------
+
+  describe("Deployment", function () {
+    it("stores transferVerifier address", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const addr = await pool.transferVerifier();
+      expect(addr).to.be.properAddress;
+      expect(addr).to.not.equal(ethers.ZeroAddress);
+    });
+
+    it("stores withdrawVerifier address", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const addr = await pool.withdrawVerifier();
+      expect(addr).to.be.properAddress;
+      expect(addr).to.not.equal(ethers.ZeroAddress);
+    });
+
+    it("sets the correct tree height", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.levels()).to.equal(5);
+    });
+
+    it("starts with nextIndex = 0", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.nextIndex()).to.equal(0);
+    });
+
+    it("has a non-zero initial root", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const root = await pool.getLastRoot();
+      expect(root).to.not.equal(0n);
+    });
+
+    it("reverts when transferVerifier is zero address", async function () {
+      const [signer] = await ethers.getSigners();
+      const hasherAddress = await deployHasher();
+      const WithdrawVerifier =
+        await ethers.getContractFactory("WithdrawVerifier");
+      const withdrawVerifier = await WithdrawVerifier.deploy();
+      const Pool = await ethers.getContractFactory("ConfidentialPool");
+      await expect(
+        Pool.deploy(
+          ethers.ZeroAddress,
+          await withdrawVerifier.getAddress(),
+          5,
+          hasherAddress
+        )
+      ).to.be.revertedWith("ConfidentialPool: zero transfer verifier");
+    });
+
+    it("reverts when withdrawVerifier is zero address", async function () {
+      const hasherAddress = await deployHasher();
+      const TransferVerifier =
+        await ethers.getContractFactory("TransferVerifier");
+      const transferVerifier = await TransferVerifier.deploy();
+      const Pool = await ethers.getContractFactory("ConfidentialPool");
+      await expect(
+        Pool.deploy(
+          await transferVerifier.getAddress(),
+          ethers.ZeroAddress,
+          5,
+          hasherAddress
+        )
+      ).to.be.revertedWith("ConfidentialPool: zero withdraw verifier");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 2. Deposit
+  // -------------------------------------------------------------------------
+
+  describe("Deposit", function () {
+    it("emits Deposit event with correct fields", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      const value = ethers.parseEther("1");
+
+      await expect(pool.connect(alice).deposit(commitment, { value }))
+        .to.emit(pool, "Deposit")
+        .withArgs(commitment, 0, value, await ethers.provider.getBlock("latest").then((b) => b!.timestamp + 1));
+    });
+
+    it("marks commitment as stored", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      await pool.connect(alice).deposit(commitment, { value: ethers.parseEther("1") });
+      expect(await pool.commitments(commitment)).to.be.true;
+    });
+
+    it("increments nextIndex after deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await pool
+        .connect(alice)
+        .deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      expect(await pool.nextIndex()).to.equal(1);
+    });
+
+    it("updates the Merkle root after deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const rootBefore = await pool.getLastRoot();
+      await pool
+        .connect(alice)
+        .deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      const rootAfter = await pool.getLastRoot();
+      expect(rootAfter).to.not.equal(rootBefore);
+    });
+
+    it("accepts the pool ETH balance", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const value = ethers.parseEther("2.5");
+      await pool.connect(alice).deposit(randomCommitment(), { value });
+      expect(
+        await ethers.provider.getBalance(await pool.getAddress())
+      ).to.equal(value);
+    });
+
+    it("reverts when commitment is zero", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).deposit(0n, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("ConfidentialPool: zero commitment");
+    });
+
+    it("reverts when msg.value is zero", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool.connect(alice).deposit(randomCommitment(), { value: 0n })
+      ).to.be.revertedWith("ConfidentialPool: zero deposit");
+    });
+
+    it("reverts on duplicate commitment", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      await pool
+        .connect(alice)
+        .deposit(commitment, { value: ethers.parseEther("1") });
+      await expect(
+        pool.connect(alice).deposit(commitment, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("ConfidentialPool: duplicate commitment");
+    });
+
+    it("reverts when commitment >= FIELD_SIZE", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await expect(
+        pool
+          .connect(alice)
+          .deposit(FIELD_SIZE, { value: ethers.parseEther("1") })
+      ).to.be.revertedWith("ConfidentialPool: commitment >= field size");
+    });
+
+    it("multiple deposits all mark commitments correctly", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+      const c1 = randomCommitment();
+      const c2 = randomCommitment();
+      await pool.connect(alice).deposit(c1, { value: ethers.parseEther("1") });
+      await pool.connect(bob).deposit(c2, { value: ethers.parseEther("1") });
+      expect(await pool.commitments(c1)).to.be.true;
+      expect(await pool.commitments(c2)).to.be.true;
+      expect(await pool.nextIndex()).to.equal(2);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 3. Transfer
+  // -------------------------------------------------------------------------
+
+  describe("Transfer", function () {
+    it("marks the nullifier as spent after transfer", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      const root = await depositAndGetRoot(pool, alice, commitment);
+      const nullifier = randomCommitment();
+      const out1 = randomCommitment();
+      const out2 = randomCommitment();
+
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        nullifier,
+        out1,
+        out2
+      );
+
+      expect(await pool.nullifiers(nullifier)).to.be.true;
+    });
+
+    it("inserts both output commitments into the tree", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      const root = await depositAndGetRoot(pool, alice, commitment);
+      const out1 = randomCommitment();
+      const out2 = randomCommitment();
+
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        out1,
+        out2
+      );
+
+      expect(await pool.commitments(out1)).to.be.true;
+      expect(await pool.commitments(out2)).to.be.true;
+    });
+
+    it("emits Transfer event with correct args", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      const root = await depositAndGetRoot(pool, alice, commitment);
+      const nullifier = randomCommitment();
+      const out1 = randomCommitment();
+      const out2 = randomCommitment();
+
+      await expect(
+        pool.transfer(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          nullifier,
+          out1,
+          out2
+        )
+      )
+        .to.emit(pool, "Transfer")
+        .withArgs(nullifier, out1, out2);
+    });
+
+    it("updates the Merkle root after transfer", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      const root = await depositAndGetRoot(pool, alice, commitment);
+
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        randomCommitment(),
+        randomCommitment()
+      );
+
+      const rootAfter = await pool.getLastRoot();
+      expect(rootAfter).to.not.equal(root);
+    });
+
+    it("reverts on double-spend (nullifier already spent)", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      const root = await depositAndGetRoot(pool, alice, commitment);
+      const nullifier = randomCommitment();
+
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        nullifier,
+        randomCommitment(),
+        randomCommitment()
+      );
+
+      // Must get fresh root since tree state changed
+      const rootAfter = await pool.getLastRoot();
+
+      await expect(
+        pool.transfer(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          rootAfter,
+          nullifier,
+          randomCommitment(),
+          randomCommitment()
+        )
+      ).to.be.revertedWith("ConfidentialPool: nullifier already spent");
+    });
+
+    it("reverts for unknown root", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const fakeRoot = randomCommitment();
+
+      await expect(
+        pool.transfer(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          fakeRoot,
+          randomCommitment(),
+          randomCommitment(),
+          randomCommitment()
+        )
+      ).to.be.revertedWith("ConfidentialPool: unknown root");
+    });
+
+    it("reverts when outputCommitment1 is zero", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(pool, alice, randomCommitment());
+
+      await expect(
+        pool.transfer(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          0n,
+          randomCommitment()
+        )
+      ).to.be.revertedWith("ConfidentialPool: zero output commitment");
+    });
+
+    it("reverts when outputCommitment2 is zero", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(pool, alice, randomCommitment());
+
+      await expect(
+        pool.transfer(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          randomCommitment(),
+          0n
+        )
+      ).to.be.revertedWith("ConfidentialPool: zero output commitment");
+    });
+
+    it("reverts when outputCommitment1 >= FIELD_SIZE", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(pool, alice, randomCommitment());
+
+      await expect(
+        pool.transfer(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          FIELD_SIZE,
+          randomCommitment()
+        )
+      ).to.be.revertedWith("ConfidentialPool: output commitment >= field size");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 4. Withdrawal
+  // -------------------------------------------------------------------------
+
+  describe("Withdrawal", function () {
+    it("sends ETH to recipient and marks nullifier spent", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+      const depositAmount = ethers.parseEther("1");
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        depositAmount
+      );
+      const nullifier = randomCommitment();
+      const withdrawAmount = ethers.parseEther("0.5");
+
+      const bobBefore = await ethers.provider.getBalance(bob.address);
+
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        nullifier,
+        withdrawAmount,
+        bob.address,
+        0n // no change commitment
+      );
+
+      const bobAfter = await ethers.provider.getBalance(bob.address);
+      expect(bobAfter - bobBefore).to.equal(withdrawAmount);
+      expect(await pool.nullifiers(nullifier)).to.be.true;
+    });
+
+    it("emits Withdrawal event with correct args", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+      const depositAmount = ethers.parseEther("1");
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        depositAmount
+      );
+      const nullifier = randomCommitment();
+      const withdrawAmount = ethers.parseEther("1");
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          nullifier,
+          withdrawAmount,
+          bob.address,
+          0n
+        )
+      )
+        .to.emit(pool, "Withdrawal")
+        .withArgs(nullifier, withdrawAmount, bob.address, 0n);
+    });
+
+    it("inserts change commitment when non-zero", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const depositAmount = ethers.parseEther("2");
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        depositAmount
+      );
+      const changeCommitment = randomCommitment();
+      const recipientAddr = alice.address;
+
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        ethers.parseEther("1"),
+        recipientAddr,
+        changeCommitment
+      );
+
+      expect(await pool.commitments(changeCommitment)).to.be.true;
+    });
+
+    it("does not insert change commitment when zero", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        ethers.parseEther("1")
+      );
+
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        ethers.parseEther("1"),
+        alice.address,
+        0n
+      );
+
+      // nextIndex advanced by 1 (deposit) but NOT by withdrawal without change
+      expect(await pool.nextIndex()).to.equal(1);
+    });
+
+    it("reverts on double-spend", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const depositAmount = ethers.parseEther("2");
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        depositAmount
+      );
+      const nullifier = randomCommitment();
+
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        nullifier,
+        ethers.parseEther("1"),
+        alice.address,
+        0n
+      );
+
+      const rootAfter = await pool.getLastRoot();
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          rootAfter,
+          nullifier,
+          ethers.parseEther("1"),
+          alice.address,
+          0n
+        )
+      ).to.be.revertedWith("ConfidentialPool: nullifier already spent");
+    });
+
+    it("reverts for unknown root", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          randomCommitment(),
+          randomCommitment(),
+          ethers.parseEther("1"),
+          alice.address,
+          0n
+        )
+      ).to.be.revertedWith("ConfidentialPool: unknown root");
+    });
+
+    it("reverts when recipient is zero address", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        ethers.parseEther("1")
+      );
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("1"),
+          ethers.ZeroAddress,
+          0n
+        )
+      ).to.be.revertedWith("ConfidentialPool: zero recipient");
+    });
+
+    it("reverts when amount is zero", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        ethers.parseEther("1")
+      );
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          0n,
+          alice.address,
+          0n
+        )
+      ).to.be.revertedWith("ConfidentialPool: zero withdrawal amount");
+    });
+
+    it("reverts when pool balance is insufficient", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        ethers.parseEther("1")
+      );
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("10"), // more than deposited
+          alice.address,
+          0n
+        )
+      ).to.be.revertedWith("ConfidentialPool: insufficient pool balance");
+    });
+
+    it("reverts when changeCommitment >= FIELD_SIZE", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(
+        pool,
+        alice,
+        randomCommitment(),
+        ethers.parseEther("1")
+      );
+
+      await expect(
+        pool.withdraw(
+          ZERO_PROOF.pA,
+          ZERO_PROOF.pB,
+          ZERO_PROOF.pC,
+          root,
+          randomCommitment(),
+          ethers.parseEther("1"),
+          alice.address,
+          FIELD_SIZE
+        )
+      ).to.be.revertedWith("ConfidentialPool: change commitment >= field size");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 5. Integration
+  // -------------------------------------------------------------------------
+
+  describe("Integration", function () {
+    it("deposit → transfer → withdraw flow", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+
+      // Alice deposits 1 ETH
+      const depositCommitment = randomCommitment();
+      await pool
+        .connect(alice)
+        .deposit(depositCommitment, { value: ethers.parseEther("1") });
+      const rootAfterDeposit = await pool.getLastRoot();
+
+      // Transfer: spend deposit commitment, create 2 new commitments
+      const transferNullifier = randomCommitment();
+      const out1 = randomCommitment();
+      const out2 = randomCommitment();
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        rootAfterDeposit,
+        transferNullifier,
+        out1,
+        out2
+      );
+      const rootAfterTransfer = await pool.getLastRoot();
+
+      // Withdraw: send 1 ETH to Bob, no change
+      const withdrawNullifier = randomCommitment();
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        rootAfterTransfer,
+        withdrawNullifier,
+        ethers.parseEther("1"),
+        bob.address,
+        0n
+      );
+
+      expect(await pool.nullifiers(transferNullifier)).to.be.true;
+      expect(await pool.nullifiers(withdrawNullifier)).to.be.true;
+      expect(
+        await ethers.provider.getBalance(await pool.getAddress())
+      ).to.equal(0n);
+    });
+
+    it("multiple deposits then transfer", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+
+      // Three deposits from different users
+      const c1 = randomCommitment();
+      const c2 = randomCommitment();
+      const c3 = randomCommitment();
+      await pool.connect(alice).deposit(c1, { value: ethers.parseEther("1") });
+      await pool.connect(bob).deposit(c2, { value: ethers.parseEther("1") });
+      await pool.connect(alice).deposit(c3, { value: ethers.parseEther("1") });
+
+      const rootAfterDeposits = await pool.getLastRoot();
+      expect(await pool.nextIndex()).to.equal(3);
+
+      // Transfer using that root
+      const nullifier = randomCommitment();
+      const out1 = randomCommitment();
+      const out2 = randomCommitment();
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        rootAfterDeposits,
+        nullifier,
+        out1,
+        out2
+      );
+
+      expect(await pool.nextIndex()).to.equal(5); // 3 deposits + 2 outputs
+    });
+
+    it("withdrawal with change commitment completes full UTXO cycle", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const depositAmount = ethers.parseEther("3");
+
+      const commitment = randomCommitment();
+      await pool.connect(alice).deposit(commitment, { value: depositAmount });
+      const root = await pool.getLastRoot();
+
+      const changeCommitment = randomCommitment();
+      const withdrawAmount = ethers.parseEther("2");
+      const nullifier = randomCommitment();
+
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        nullifier,
+        withdrawAmount,
+        alice.address,
+        changeCommitment
+      );
+
+      // Change commitment should be in the tree
+      expect(await pool.commitments(changeCommitment)).to.be.true;
+      // Pool retains 1 ETH
+      expect(
+        await ethers.provider.getBalance(await pool.getAddress())
+      ).to.equal(ethers.parseEther("1"));
+    });
+
+    it("isKnownRoot returns false for zero", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.isKnownRoot(0n)).to.be.false;
+    });
+
+    it("isKnownRoot returns true for current root", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await pool
+        .connect(alice)
+        .deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      const root = await pool.getLastRoot();
+      expect(await pool.isKnownRoot(root)).to.be.true;
+    });
+  });
+});
