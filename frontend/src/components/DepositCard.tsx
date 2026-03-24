@@ -125,9 +125,19 @@ export function DepositCard() {
   const showNote =
     note !== null && (state === "success" || state === "waiting" || isConfirmed);
 
+  if (!isConnected) {
+    return (
+      <Card className="max-w-lg mx-auto">
+        <CardContent className="py-8 text-center text-zinc-400">
+          Connect your wallet to continue
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
-      <CardHeader>
+    <Card className="max-w-lg mx-auto">
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle>Deposit</CardTitle>
         <CardDescription>
           Deposit ETH into the confidential pool. A private note will be
@@ -135,7 +145,7 @@ export function DepositCard() {
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-4 sm:px-6">
         <div className="space-y-2">
           <label className="text-sm text-zinc-400">Amount (ETH)</label>
           <Input
@@ -202,16 +212,16 @@ export function DepositCard() {
         )}
       </CardContent>
 
-      <CardFooter>
+      <CardFooter className="px-4 sm:px-6">
         {state === "success" || isConfirmed ? (
-          <Button variant="secondary" onClick={handleReset} className="w-full">
+          <Button variant="secondary" onClick={handleReset} className="w-full text-sm sm:text-base">
             Make Another Deposit
           </Button>
         ) : (
           <Button
             onClick={handleDeposit}
             disabled={isProcessing || !isConnected}
-            className="w-full"
+            className="w-full text-sm sm:text-base"
           >
             {isProcessing ? "Processing..." : "Deposit"}
           </Button>

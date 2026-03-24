@@ -244,9 +244,19 @@ export function TransferCard() {
   const isActive = ACTIVE_STEPS.includes(step as (typeof ACTIVE_STEPS)[number]);
   const isProcessing = isActive || isWaiting;
 
+  if (!isConnected) {
+    return (
+      <Card className="max-w-lg mx-auto">
+        <CardContent className="py-8 text-center text-zinc-400">
+          Connect your wallet to continue
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
-      <CardHeader>
+    <Card className="max-w-lg mx-auto">
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle>Transfer</CardTitle>
         <CardDescription>
           Spend a note and send funds to a recipient stealth address with a ZK
@@ -254,7 +264,7 @@ export function TransferCard() {
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-4 sm:px-6">
         <div className="space-y-2">
           <label className="text-sm text-zinc-400">Select Note</label>
           <div className="space-y-1.5">
@@ -283,7 +293,7 @@ export function TransferCard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div className="space-y-1">
             <label className="text-xs text-zinc-400">Recipient Pub X</label>
             <Input
@@ -371,16 +381,16 @@ export function TransferCard() {
         )}
       </CardContent>
 
-      <CardFooter>
+      <CardFooter className="px-4 sm:px-6">
         {step === "success" ? (
-          <Button variant="secondary" onClick={handleReset} className="w-full">
+          <Button variant="secondary" onClick={handleReset} className="w-full text-sm sm:text-base">
             New Transfer
           </Button>
         ) : (
           <Button
             onClick={handleTransfer}
             disabled={isProcessing || !isConnected || !selectedNote}
-            className="w-full"
+            className="w-full text-sm sm:text-base"
           >
             {isProcessing
               ? STEP_LABELS[step] || "Processing..."

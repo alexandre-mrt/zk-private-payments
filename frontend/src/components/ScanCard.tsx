@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useContractEvents } from "wagmi";
+import { useContractEvents, useAccount } from "wagmi";
 import {
   Card,
   CardHeader,
@@ -26,6 +26,7 @@ type ScannedNote = {
 const REGISTRY_ADDRESS_ZERO = "0x0000000000000000000000000000000000000000" as `0x${string}`;
 
 export function ScanCard() {
+  const { isConnected } = useAccount();
   const [state, setState] = useState<ScanState>("idle");
   const [found, setFound] = useState<ScannedNote[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -107,9 +108,19 @@ export function ScanCard() {
 
   const existingNotes = loadNotes();
 
+  if (!isConnected) {
+    return (
+      <Card className="max-w-lg mx-auto">
+        <CardContent className="py-8 text-center text-zinc-400">
+          Connect your wallet to continue
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
-      <CardHeader>
+    <Card className="max-w-lg mx-auto">
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle>Scan</CardTitle>
         <CardDescription>
           Scan the StealthRegistry for incoming payments addressed to your
@@ -117,7 +128,7 @@ export function ScanCard() {
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-4 sm:px-6">
         {REGISTRY_ADDRESS_ZERO === "0x0000000000000000000000000000000000000000" && (
           <div className="rounded-lg border border-amber-700 bg-amber-950 p-3 text-sm text-amber-300">
             StealthRegistry not deployed. Update the registry address in ScanCard to enable live scanning.
@@ -165,11 +176,11 @@ export function ScanCard() {
         </p>
       </CardContent>
 
-      <CardFooter>
+      <CardFooter className="px-4 sm:px-6">
         <Button
           onClick={handleScan}
           disabled={state === "scanning"}
-          className="w-full"
+          className="w-full text-sm sm:text-base"
         >
           {state === "scanning" ? "Scanning..." : "Scan for Payments"}
         </Button>

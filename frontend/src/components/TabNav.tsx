@@ -9,7 +9,7 @@ import { DashboardCard } from "./DashboardCard";
 export function TabNav() {
   return (
     <Tabs defaultValue="keys" className="w-full">
-      <TabsList className="w-full mb-6 flex">
+      <TabsList className="w-full mb-6 flex overflow-x-auto">
         <TabsTrigger value="keys" className="flex-1">
           Keys
         </TabsTrigger>

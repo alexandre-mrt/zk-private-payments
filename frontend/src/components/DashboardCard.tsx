@@ -1,4 +1,4 @@
-import { useReadContract } from "wagmi";
+import { useReadContract, useAccount } from "wagmi";
 import {
   Card,
   CardHeader,
@@ -14,6 +14,7 @@ const POOL_ADDRESS_ZERO = "0x0000000000000000000000000000000000000000" as `0x${s
 const isDeployed = POOL_ADDRESS_ZERO !== "0x0000000000000000000000000000000000000000";
 
 export function DashboardCard() {
+  const { isConnected } = useAccount();
   const { data: lastRoot, isLoading: rootLoading } = useReadContract({
     address: POOL_ADDRESS_ZERO,
     abi: POOL_ABI,
@@ -31,16 +32,26 @@ export function DashboardCard() {
   const localNotes = loadNotes();
   const totalLocalBalance = localNotes.reduce((sum, n) => sum + n.amount, 0n);
 
+  if (!isConnected) {
+    return (
+      <Card className="max-w-lg mx-auto">
+        <CardContent className="py-8 text-center text-zinc-400">
+          Connect your wallet to continue
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card>
-      <CardHeader>
+    <Card className="max-w-lg mx-auto">
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle>Dashboard</CardTitle>
         <CardDescription>
           Pool statistics and your local balance.
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-4 sm:px-6">
         {!isDeployed && (
           <div className="rounded-lg border border-amber-700 bg-amber-950 p-3 text-sm text-amber-300">
             ConfidentialPool not deployed. Stats unavailable.
