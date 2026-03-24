@@ -19,7 +19,7 @@ Execution
 - [x] M4: Add event pagination in WithdrawCard.tsx
 
 #### Part 2: ZK Private Payments (~/Desktop/zk-private-payments)
-- [ ] P1: Scaffold project structure + dependencies
+- [x] P1: Scaffold project structure + dependencies
 - [ ] P2: Circom circuits — stealth address (BabyJubjub ECDH), confidential transfer (Pedersen + range proof), note commitment
 - [ ] P3: Circuit compilation scripts
 - [ ] P4: Solidity contracts — StealthRegistry, ConfidentialPool, Verifier placeholder
@@ -29,13 +29,14 @@ Execution
 - [ ] P8: Final validation + code review + PR
 
 ### Last Checkpoint
-29e8115 — zk-mixer: all 4 code review fixes applied, 41/41 tests passing, pushed
+88eb90e — chore: scaffold project structure and dependencies
 
 ### Last Validation
-Build: PASS | Tests: 41/41 PASS | Lint: N/A
+Build: PASS (hardhat compile + frontend build) | Tests: N/A | Lint: N/A
 
 ### Completed This Session
 - M1: Relayer as 5th public signal (circuit, contract, CLI, frontend, tests)
 - M2: Optimized CLI MerkleTree (incremental layers instead of 2^20 allocations)
 - M3: getMixerAddress() runtime check for zero address
 - M4: DEPLOY_BLOCK constant for event pagination
+- P1: Scaffold project structure (package.json, hardhat.config.ts, tsconfig.json, .gitignore, .env.example, directories, frontend with Vite+Tailwind+wagmi+shadcn)
