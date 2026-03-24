@@ -5,6 +5,7 @@ import { ScanCard } from "./ScanCard";
 import { TransferCard } from "./TransferCard";
 import { WithdrawCard } from "./WithdrawCard";
 import { DashboardCard } from "./DashboardCard";
+import { HistoryCard } from "./HistoryCard";
 
 export function TabNav() {
   return (
@@ -27,6 +28,9 @@ export function TabNav() {
         </TabsTrigger>
         <TabsTrigger value="dashboard" className="flex-1">
           Dashboard
+        </TabsTrigger>
+        <TabsTrigger value="history" className="flex-1">
+          History
         </TabsTrigger>
       </TabsList>
 
@@ -52,6 +56,10 @@ export function TabNav() {
 
       <TabsContent value="dashboard">
         <DashboardCard />
+      </TabsContent>
+
+      <TabsContent value="history">
+        <HistoryCard />
       </TabsContent>
     </Tabs>
   );
