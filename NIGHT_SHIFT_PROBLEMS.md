@@ -3,10 +3,19 @@
 > Items that need your attention. Run `grep -r "NIGHT-SHIFT-REVIEW" .` to find marked code.
 
 ## Summary
-- 0 uncertainties remaining
+- 1 uncertainty remaining (see below)
 - 0 tasks blocked
 - 0 fixes failed
 - 0 assumptions unresolved
+
+## Open Problems
+
+### ASSUMPTION: getAllCommitments insertion order for transfers/withdrawals
+- **File**: shared/indexer.ts (getAllCommitments)
+- **What I needed**: Transfer and Withdrawal events do not carry a leafIndex, so the exact insertion order within the same block is unknown from logs alone.
+- **What I did**: Sort transfer outputs and change commitments by blockNumber. Within the same block, ordering is undefined — this is correct for single-tx-per-block workloads (local dev) but may produce a wrong Merkle root on mainnet/testnet if multiple transactions land in the same block.
+- **Confidence**: MEDIUM
+- **User action needed**: Before using getAllCommitments for Merkle proof generation, verify the reconstructed root matches `pool.getLastRoot()`. If it does not, a full log-index-based sort (using transactionIndex + logIndex from the raw receipt) is needed.
 
 ## Resolved Problems
 
