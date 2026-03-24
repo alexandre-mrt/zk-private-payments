@@ -3,7 +3,7 @@ import path from "path";
 import { ethers } from "ethers";
 import { groth16 } from "snarkjs";
 import { createNote, computeNullifier } from "./crypto.js";
-import { MerkleTree, ZERO_VALUE } from "./merkle-tree.js";
+import { MerkleTree } from "./merkle-tree.js";
 import { MERKLE_TREE_HEIGHT, CLI_DIRS } from "./config.js";
 import {
   getProvider,
@@ -14,6 +14,7 @@ import {
   saveNote,
   markNoteSpent,
   formatProofForSolidity,
+  log,
 } from "./utils.js";
 
 export function registerTransfer(program: Command): void {
@@ -24,6 +25,18 @@ export function registerTransfer(program: Command): void {
     .requiredOption("--to <pubKeyX>", "Recipient's spending pubkey X")
     .requiredOption("--amount <ETH>", "Amount to send (rest becomes change note for you)")
     .option("--rpc <url>", "RPC URL")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ zk-pay transfer --note <commitment> --to <recipientPubKeyX> --amount 0.5
+  $ zk-pay transfer --note <commitment> --to <recipientPubKeyX> --amount 0.5 --rpc http://localhost:8545
+
+Notes:
+  Run 'zk-pay scan' first to ensure your note has a leafIndex.
+  The remainder after --amount is returned to you as a change note.
+`
+    )
     .action(
       async (opts: {
         note: string;
@@ -31,7 +44,21 @@ export function registerTransfer(program: Command): void {
         amount: string;
         rpc?: string;
       }) => {
+        const rpcUrl = opts.rpc ?? process.env["RPC_URL"] ?? "http://127.0.0.1:8545";
         try {
+          // Validate amount before async work
+          const parsedAmount = Number.parseFloat(opts.amount);
+          if (Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+            log.error(`Invalid amount: "${opts.amount}". Amount must be a positive number.`);
+            process.exit(1);
+          }
+
+          // Validate note commitment format
+          if (!opts.note || opts.note.trim() === "") {
+            log.error("Note commitment cannot be empty.");
+            process.exit(1);
+          }
+
           const provider = getProvider(opts.rpc);
           const wallet = getWallet(provider);
           const keys = loadFirstKeys();
@@ -40,16 +67,17 @@ export function registerTransfer(program: Command): void {
           const amountOut1Wei = ethers.parseEther(opts.amount);
 
           if (amountOut1Wei > inputNote.amount) {
-            throw new Error(
-              `Transfer amount (${opts.amount} ETH) exceeds note amount (${ethers.formatEther(inputNote.amount)} ETH)`
+            log.error(
+              `Transfer amount (${opts.amount} ETH) exceeds note amount (${ethers.formatEther(inputNote.amount)} ETH).`
             );
+            process.exit(1);
           }
 
           const amountOut2 = inputNote.amount - amountOut1Wei;
           const recipientPubKeyX = BigInt(opts.to);
 
           // Build Merkle tree from on-chain Deposit events
-          console.log("Building Merkle tree from chain...");
+          log.info("Building Merkle tree from chain...");
           const pool = getConfidentialPool(provider);
           const depositFilter = pool.filters["Deposit"]();
           const depositEvents = await pool.queryFilter(depositFilter, 0);
@@ -62,8 +90,8 @@ export function registerTransfer(program: Command): void {
               return Number(la?.args["leafIndex"] ?? 0) - Number(lb?.args["leafIndex"] ?? 0);
             })
             .map((e) => {
-              const log = pool.interface.parseLog(e);
-              return BigInt(log?.args["commitment"]?.toString() ?? "0");
+              const parsed = pool.interface.parseLog(e);
+              return BigInt(parsed?.args["commitment"]?.toString() ?? "0");
             });
 
           tree.insertAll(leaves);
@@ -72,9 +100,8 @@ export function registerTransfer(program: Command): void {
           // Find our leaf index
           const leafIndex = inputNote.leafIndex;
           if (leafIndex === undefined) {
-            throw new Error(
-              "Note is missing leafIndex. Run 'zk-pay scan' first to update it."
-            );
+            log.error("Note file found but is missing leafIndex. Did you run 'zk-pay scan' first?");
+            process.exit(1);
           }
 
           const { pathElements, pathIndices } = tree.getProof(leafIndex);
@@ -86,9 +113,18 @@ export function registerTransfer(program: Command): void {
           const outNote1 = await createNote(amountOut1Wei, recipientPubKeyX);
           const outNote2 = await createNote(amountOut2, keys.spendingPubKey.x);
 
-          console.log("Generating ZK proof...");
-          const wasmPath = path.join(CLI_DIRS.circuits, "confidential_transfer", "confidential_transfer_js", "confidential_transfer.wasm");
-          const zkeyPath = path.join(CLI_DIRS.circuits, "confidential_transfer", "confidential_transfer_final.zkey");
+          log.info("Generating ZK proof...");
+          const wasmPath = path.join(
+            CLI_DIRS.circuits,
+            "confidential_transfer",
+            "confidential_transfer_js",
+            "confidential_transfer.wasm"
+          );
+          const zkeyPath = path.join(
+            CLI_DIRS.circuits,
+            "confidential_transfer",
+            "confidential_transfer_final.zkey"
+          );
 
           const input = {
             root: root.toString(),
@@ -109,10 +145,10 @@ export function registerTransfer(program: Command): void {
             ownerPubKeyXOut2: keys.spendingPubKey.x.toString(),
           };
 
-          const { proof, publicSignals } = await groth16.fullProve(input, wasmPath, zkeyPath);
+          const { proof } = await groth16.fullProve(input, wasmPath, zkeyPath);
           const { pA, pB, pC } = formatProofForSolidity(proof);
 
-          console.log("Submitting transfer transaction...");
+          log.info("Submitting transfer transaction...");
           const poolSigner = getConfidentialPool(wallet);
           const tx = await poolSigner["transfer"](
             [pA[0], pA[1]],
@@ -126,21 +162,33 @@ export function registerTransfer(program: Command): void {
             outNote1.commitment,
             outNote2.commitment
           );
-          console.log("Transaction sent:", tx.hash);
+          log.step(`Transaction sent: ${tx.hash}`);
 
           const receipt = await tx.wait();
-          console.log("Confirmed in block:", receipt.blockNumber);
+          log.step(`Confirmed in block: ${receipt.blockNumber}`);
 
           // Mark input note as spent, save output notes
           markNoteSpent(opts.note);
           saveNote({ ...outNote1, txHash: tx.hash, createdAt: new Date().toISOString() });
           saveNote({ ...outNote2, txHash: tx.hash, createdAt: new Date().toISOString() });
 
-          console.log(`\nTransfer complete:`);
-          console.log(`  Sent:   ${ethers.formatEther(amountOut1Wei)} ETH → commitment ${outNote1.commitment}`);
-          console.log(`  Change: ${ethers.formatEther(amountOut2)} ETH → commitment ${outNote2.commitment}`);
+          log.success("Transfer complete.");
+          log.step(`Sent:   ${ethers.formatEther(amountOut1Wei)} ETH -> commitment ${outNote1.commitment}`);
+          log.step(`Change: ${ethers.formatEther(amountOut2)} ETH -> commitment ${outNote2.commitment}`);
         } catch (err) {
-          console.error("transfer failed:", (err as Error).message);
+          const message = (err as Error).message;
+          if (
+            message.includes("PRIVATE_KEY") ||
+            message.includes("Note not found") ||
+            message.includes("No key files") ||
+            message.includes("deployment.json")
+          ) {
+            log.error(message);
+          } else if (message.includes("Note not found")) {
+            log.error(`Note file not found at notes/${opts.note}.json. Did you run 'zk-pay deposit' first?`);
+          } else {
+            log.error(`Failed to connect to RPC at ${rpcUrl}: ${message}`);
+          }
           process.exit(1);
         }
       }

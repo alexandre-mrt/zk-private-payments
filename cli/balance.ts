@@ -7,6 +7,7 @@ import {
   loadFirstKeys,
   loadAllNotes,
   markNoteSpent,
+  log,
 } from "./utils.js";
 
 export function registerBalance(program: Command): void {
@@ -15,7 +16,17 @@ export function registerBalance(program: Command): void {
     .description("Show total unspent balance across all known notes")
     .option("--rpc <url>", "RPC URL")
     .option("--verbose", "Show each note's details")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ zk-pay balance
+  $ zk-pay balance --verbose
+  $ zk-pay balance --rpc http://localhost:8545
+`
+    )
     .action(async (opts: { rpc?: string; verbose?: boolean }) => {
+      const rpcUrl = opts.rpc ?? process.env["RPC_URL"] ?? "http://127.0.0.1:8545";
       try {
         const provider = getProvider(opts.rpc);
         const keys = loadFirstKeys();
@@ -23,11 +34,11 @@ export function registerBalance(program: Command): void {
 
         const allNotes = loadAllNotes();
         if (allNotes.length === 0) {
-          console.log("No notes found. Run 'zk-pay deposit' first.");
+          log.info("No notes found. Run 'zk-pay deposit' first.");
           return;
         }
 
-        console.log(`Checking ${allNotes.length} note(s) on-chain...\n`);
+        log.info(`Checking ${allNotes.length} note(s) on-chain...`);
 
         let totalBalance = 0n;
         let unspentCount = 0;
@@ -36,7 +47,7 @@ export function registerBalance(program: Command): void {
         for (const note of allNotes) {
           // Compute nullifier and check on-chain
           const nullifier = await computeNullifier(note.commitment, keys.spendingKey);
-          const isSpent = await pool["nullifiers"](nullifier) as boolean;
+          const isSpent = (await pool["nullifiers"](nullifier)) as boolean;
 
           if (isSpent && !note.spent) {
             // Sync local state
@@ -48,27 +59,32 @@ export function registerBalance(program: Command): void {
             unspentCount++;
 
             if (opts.verbose) {
-              console.log(`  [UNSPENT] commitment: ${note.commitment}`);
-              console.log(`            amount:     ${ethers.formatEther(note.amount)} ETH`);
-              console.log(`            leafIndex:  ${note.leafIndex ?? "unknown"}`);
-              console.log(`            created:    ${note.createdAt ?? "unknown"}`);
+              log.step(`[UNSPENT] commitment: ${note.commitment}`);
+              log.step(`          amount:     ${ethers.formatEther(note.amount)} ETH`);
+              log.step(`          leafIndex:  ${note.leafIndex ?? "unknown"}`);
+              log.step(`          created:    ${note.createdAt ?? "unknown"}`);
               console.log();
             }
           } else {
             spentCount++;
             if (opts.verbose) {
-              console.log(`  [SPENT]   commitment: ${note.commitment}`);
-              console.log(`            amount:     ${ethers.formatEther(note.amount)} ETH`);
+              log.step(`[SPENT]   commitment: ${note.commitment}`);
+              log.step(`          amount:     ${ethers.formatEther(note.amount)} ETH`);
               console.log();
             }
           }
         }
 
-        console.log(`Balance:     ${ethers.formatEther(totalBalance)} ETH`);
-        console.log(`Unspent:     ${unspentCount} note(s)`);
-        console.log(`Spent:       ${spentCount} note(s)`);
+        log.success(`Balance: ${ethers.formatEther(totalBalance)} ETH`);
+        log.step(`Unspent: ${unspentCount} note(s)`);
+        log.step(`Spent:   ${spentCount} note(s)`);
       } catch (err) {
-        console.error("balance failed:", (err as Error).message);
+        const message = (err as Error).message;
+        if (message.includes("No key files") || message.includes("deployment.json")) {
+          log.error(message);
+        } else {
+          log.error(`Failed to connect to RPC at ${rpcUrl}: ${message}`);
+        }
         process.exit(1);
       }
     });

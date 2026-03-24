@@ -14,6 +14,7 @@ import {
   saveNote,
   markNoteSpent,
   formatProofForSolidity,
+  log,
 } from "./utils.js";
 
 export function registerWithdraw(program: Command): void {
@@ -24,6 +25,18 @@ export function registerWithdraw(program: Command): void {
     .requiredOption("--amount <ETH>", "Amount in ETH to withdraw")
     .requiredOption("--to <address>", "Recipient ETH address")
     .option("--rpc <url>", "RPC URL")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ zk-pay withdraw --note <commitment> --amount 1.0 --to 0xRecipientAddress
+  $ zk-pay withdraw --note <commitment> --amount 0.5 --to 0xRecipientAddress --rpc http://localhost:8545
+
+Notes:
+  Run 'zk-pay scan' first to ensure your note has a leafIndex.
+  Any remaining amount is saved as a change note.
+`
+    )
     .action(
       async (opts: {
         note: string;
@@ -31,9 +44,25 @@ export function registerWithdraw(program: Command): void {
         to: string;
         rpc?: string;
       }) => {
+        const rpcUrl = opts.rpc ?? process.env["RPC_URL"] ?? "http://127.0.0.1:8545";
         try {
+          // Validate recipient address before async work
           if (!ethers.isAddress(opts.to)) {
-            throw new Error(`Invalid recipient address: ${opts.to}`);
+            log.error(`Invalid recipient address: "${opts.to}". Must be a valid Ethereum address.`);
+            process.exit(1);
+          }
+
+          // Validate amount before async work
+          const parsedAmount = Number.parseFloat(opts.amount);
+          if (Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+            log.error(`Invalid amount: "${opts.amount}". Amount must be a positive number.`);
+            process.exit(1);
+          }
+
+          // Validate note commitment format
+          if (!opts.note || opts.note.trim() === "") {
+            log.error("Note commitment cannot be empty.");
+            process.exit(1);
           }
 
           const provider = getProvider(opts.rpc);
@@ -44,15 +73,16 @@ export function registerWithdraw(program: Command): void {
           const withdrawAmountWei = ethers.parseEther(opts.amount);
 
           if (withdrawAmountWei > inputNote.amount) {
-            throw new Error(
-              `Withdrawal amount (${opts.amount} ETH) exceeds note amount (${ethers.formatEther(inputNote.amount)} ETH)`
+            log.error(
+              `Withdrawal amount (${opts.amount} ETH) exceeds note amount (${ethers.formatEther(inputNote.amount)} ETH).`
             );
+            process.exit(1);
           }
 
           const changeAmount = inputNote.amount - withdrawAmountWei;
 
           // Build Merkle tree
-          console.log("Building Merkle tree from chain...");
+          log.info("Building Merkle tree from chain...");
           const pool = getConfidentialPool(provider);
           const depositFilter = pool.filters["Deposit"]();
           const depositEvents = await pool.queryFilter(depositFilter, 0);
@@ -65,8 +95,8 @@ export function registerWithdraw(program: Command): void {
               return Number(la?.args["leafIndex"] ?? 0) - Number(lb?.args["leafIndex"] ?? 0);
             })
             .map((e) => {
-              const log = pool.interface.parseLog(e);
-              return BigInt(log?.args["commitment"]?.toString() ?? "0");
+              const parsed = pool.interface.parseLog(e);
+              return BigInt(parsed?.args["commitment"]?.toString() ?? "0");
             });
 
           tree.insertAll(leaves);
@@ -74,9 +104,8 @@ export function registerWithdraw(program: Command): void {
 
           const leafIndex = inputNote.leafIndex;
           if (leafIndex === undefined) {
-            throw new Error(
-              "Note is missing leafIndex. Run 'zk-pay scan' first to update it."
-            );
+            log.error("Note file found but is missing leafIndex. Did you run 'zk-pay scan' first?");
+            process.exit(1);
           }
 
           const { pathElements, pathIndices } = tree.getProof(leafIndex);
@@ -88,7 +117,7 @@ export function registerWithdraw(program: Command): void {
           // Bind recipient address as field element
           const recipientBigInt = BigInt(opts.to);
 
-          console.log("Generating ZK proof...");
+          log.info("Generating ZK proof...");
           const wasmPath = path.join(CLI_DIRS.circuits, "withdraw", "withdraw_js", "withdraw.wasm");
           const zkeyPath = path.join(CLI_DIRS.circuits, "withdraw", "withdraw_final.zkey");
 
@@ -112,7 +141,7 @@ export function registerWithdraw(program: Command): void {
           const { proof } = await groth16.fullProve(input, wasmPath, zkeyPath);
           const { pA, pB, pC } = formatProofForSolidity(proof);
 
-          console.log("Submitting withdrawal transaction...");
+          log.info("Submitting withdrawal transaction...");
           const poolSigner = getConfidentialPool(wallet);
           const tx = await poolSigner["withdraw"](
             [pA[0], pA[1]],
@@ -127,24 +156,36 @@ export function registerWithdraw(program: Command): void {
             opts.to,
             changeNote.commitment
           );
-          console.log("Transaction sent:", tx.hash);
+          log.step(`Transaction sent: ${tx.hash}`);
 
           const receipt = await tx.wait();
-          console.log("Confirmed in block:", receipt.blockNumber);
+          log.step(`Confirmed in block: ${receipt.blockNumber}`);
 
           markNoteSpent(opts.note);
 
           if (changeAmount > 0n) {
             saveNote({ ...changeNote, txHash: tx.hash, createdAt: new Date().toISOString() });
-            console.log(`Change note saved: ${ethers.formatEther(changeAmount)} ETH → commitment ${changeNote.commitment}`);
+            log.step(
+              `Change note saved: ${ethers.formatEther(changeAmount)} ETH -> commitment ${changeNote.commitment}`
+            );
           }
 
-          console.log(`\nWithdrawal complete:`);
-          console.log(`  Withdrew: ${ethers.formatEther(withdrawAmountWei)} ETH`);
-          console.log(`  To:       ${opts.to}`);
-          console.log(`  Tx hash:  ${tx.hash}`);
+          log.success("Withdrawal complete.");
+          log.step(`Withdrew: ${ethers.formatEther(withdrawAmountWei)} ETH`);
+          log.step(`To:       ${opts.to}`);
+          log.step(`Tx hash:  ${tx.hash}`);
         } catch (err) {
-          console.error("withdraw failed:", (err as Error).message);
+          const message = (err as Error).message;
+          if (
+            message.includes("PRIVATE_KEY") ||
+            message.includes("Note not found") ||
+            message.includes("No key files") ||
+            message.includes("deployment.json")
+          ) {
+            log.error(message);
+          } else {
+            log.error(`Failed to connect to RPC at ${rpcUrl}: ${message}`);
+          }
           process.exit(1);
         }
       }

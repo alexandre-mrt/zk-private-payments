@@ -10,6 +10,15 @@ import {
 } from "./config.js";
 import type { Note, FullKeypair } from "./crypto.js";
 
+// ── Console output helpers ────────────────────────────────────────────────────
+
+export const log = {
+  success: (msg: string): void => console.log(`\u2713 ${msg}`),
+  error: (msg: string): void => console.error(`\u2717 ${msg}`),
+  info: (msg: string): void => console.log(`> ${msg}`),
+  step: (msg: string): void => console.log(`  ${msg}`),
+};
+
 // ── Directories ──────────────────────────────────────────────────────────────
 
 export function ensureDirs(): void {

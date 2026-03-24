@@ -1,23 +1,31 @@
 import { Command } from "commander";
 import fs from "fs";
 import path from "path";
-import { ethers } from "ethers";
 import { generateKeypair } from "./crypto.js";
-import { saveKeys, getProvider, getWallet, ensureDirs } from "./utils.js";
+import { saveKeys, getProvider, getWallet, ensureDirs, log } from "./utils.js";
 
 export function registerKeygen(program: Command): void {
   program
     .command("keygen")
     .description("Generate a BabyJubjub spending and viewing keypair")
     .option("--rpc <url>", "RPC URL")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ zk-pay keygen
+  $ zk-pay keygen --rpc http://localhost:8545
+`
+    )
     .action(async (opts: { rpc?: string }) => {
+      const rpcUrl = opts.rpc ?? process.env["RPC_URL"] ?? "http://127.0.0.1:8545";
       try {
         ensureDirs();
         const provider = getProvider(opts.rpc);
         const wallet = getWallet(provider);
         const address = wallet.address;
 
-        console.log(`Generating keypair for address: ${address}`);
+        log.info(`Generating keypair for address: ${address}`);
         const keys = await generateKeypair();
 
         const stored = { ...keys, address };
@@ -42,17 +50,22 @@ export function registerKeygen(program: Command): void {
 
         fs.writeFileSync(envPath, lines.filter((l) => l !== "").join("\n") + "\n");
 
-        console.log("\nKeypair generated and saved to keys/" + address + ".json");
-        console.log("Also appended SPENDING_KEY and VIEWING_KEY to .env\n");
+        log.success(`Keypair saved to keys/${address}.json`);
+        log.step("Also appended SPENDING_KEY and VIEWING_KEY to .env");
 
-        console.log("Spending public key:");
-        console.log("  x:", keys.spendingPubKey.x.toString());
-        console.log("  y:", keys.spendingPubKey.y.toString());
-        console.log("\nViewing public key:");
-        console.log("  x:", keys.viewingPubKey.x.toString());
-        console.log("  y:", keys.viewingPubKey.y.toString());
+        log.step("Spending public key:");
+        log.step(`  x: ${keys.spendingPubKey.x.toString()}`);
+        log.step(`  y: ${keys.spendingPubKey.y.toString()}`);
+        log.step("Viewing public key:");
+        log.step(`  x: ${keys.viewingPubKey.x.toString()}`);
+        log.step(`  y: ${keys.viewingPubKey.y.toString()}`);
       } catch (err) {
-        console.error("keygen failed:", (err as Error).message);
+        const message = (err as Error).message;
+        if (message.includes("PRIVATE_KEY")) {
+          log.error(message);
+        } else {
+          log.error(`Failed to connect to RPC at ${rpcUrl}: ${message}`);
+        }
         process.exit(1);
       }
     });
