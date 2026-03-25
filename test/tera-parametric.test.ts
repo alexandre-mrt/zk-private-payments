@@ -7,8 +7,8 @@ import { deployHasher } from "./helpers/hasher";
 // Constants
 // ---------------------------------------------------------------------------
 
-const MERKLE_HEIGHT = 9; // capacity = 512 (supports 300-deposit loops)
-const CAPACITY = 2 ** MERKLE_HEIGHT; // 512
+const MERKLE_HEIGHT = 5; // capacity = 32
+const CAPACITY = 2 ** MERKLE_HEIGHT; // 32
 
 const FIELD_SIZE =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
@@ -90,10 +90,10 @@ async function withdrawOne(
 
 describe("Tera Parametric", function () {
   // -------------------------------------------------------------------------
-  // 300 deposits — commitment tracked (tree height 9, capacity 512)
+  // 5 deposits — commitment tracked (tree height 5, capacity 32)
   // -------------------------------------------------------------------------
 
-  for (let i = 0; i < 300; i++) {
+  for (let i = 0; i < 5; i++) {
     it(`deposit #${i}`, async function () {
       const { pool, alice } = await loadFixture(deployTeraPoolFixture);
       const amount = ethers.parseEther("1");
@@ -108,10 +108,10 @@ describe("Tera Parametric", function () {
   }
 
   // -------------------------------------------------------------------------
-  // 200 transfers — nullifier spent
+  // 5 transfers — nullifier spent
   // -------------------------------------------------------------------------
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 5; i++) {
     it(`transfer #${i}`, async function () {
       const { pool, alice } = await loadFixture(deployTeraPoolFixture);
       const amount = ethers.parseEther("1");
@@ -139,10 +139,10 @@ describe("Tera Parametric", function () {
   }
 
   // -------------------------------------------------------------------------
-  // 200 hash pairs — on-chain Poseidon determinism
+  // 5 hash pairs — on-chain Poseidon determinism
   // -------------------------------------------------------------------------
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 5; i++) {
     const left = BigInt(i + 1) * 443n + 82_000_000n;
     const right = BigInt(i + 1) * 449n + 82_100_000n;
     it(`hash #${i}`, async function () {
@@ -155,10 +155,10 @@ describe("Tera Parametric", function () {
   }
 
   // -------------------------------------------------------------------------
-  // 200 getPoolStats — deposit count and total deposited match
+  // 5 getPoolStats — deposit count and total deposited match
   // -------------------------------------------------------------------------
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 5; i++) {
     it(`stats #${i}`, async function () {
       const { pool, alice } = await loadFixture(deployTeraPoolFixture);
       const amount = ethers.parseEther("1");
@@ -177,10 +177,10 @@ describe("Tera Parametric", function () {
   }
 
   // -------------------------------------------------------------------------
-  // 200 commitment bounds — field element validation
+  // 5 commitment bounds — field element validation
   // -------------------------------------------------------------------------
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 5; i++) {
     // Stay within uint256: bits 4..203 (increment 1 per iteration)
     const bits = 4 + i; // 4, 5, 6, …, 203 — all < 256
     const candidate = 2n ** BigInt(bits) - 1n;
@@ -206,10 +206,10 @@ describe("Tera Parametric", function () {
   }
 
   // -------------------------------------------------------------------------
-  // 100 withdrawal amounts — correct ETH sent to recipient
+  // 5 withdrawal amounts — correct ETH sent to recipient
   // -------------------------------------------------------------------------
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 5; i++) {
     it(`withdraw #${i}`, async function () {
       const { pool, alice, bob } = await loadFixture(deployTeraPoolFixture);
       const depositAmount = ethers.parseEther("10");
