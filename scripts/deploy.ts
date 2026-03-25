@@ -71,7 +71,20 @@ async function main(): Promise<void> {
     console.log(`  Added denomination: ${ethers.formatEther(d)} ETH`);
   }
 
-  // 6. Deploy PoolLens
+  // 6. Deploy DepositReceipt
+  console.log("\nDeploying DepositReceipt...");
+  const DepositReceipt = await ethers.getContractFactory("DepositReceipt");
+  const depositReceipt = await DepositReceipt.deploy(await pool.getAddress());
+  await depositReceipt.waitForDeployment();
+  const depositReceiptAddress = await depositReceipt.getAddress();
+  console.log("DepositReceipt deployed to:", depositReceiptAddress);
+
+  // Wire DepositReceipt into the pool
+  console.log("Setting deposit receipt on pool...");
+  await pool.setDepositReceipt(depositReceiptAddress);
+  console.log("DepositReceipt wired to pool.");
+
+  // 8. Deploy PoolLens
   console.log("\nDeploying PoolLens...");
   const PoolLens = await ethers.getContractFactory("PoolLens");
   const poolLens = await PoolLens.deploy();
@@ -85,6 +98,7 @@ async function main(): Promise<void> {
     withdrawVerifier: await withdrawVerifier.getAddress(),
     stealthRegistry: await stealthRegistry.getAddress(),
     confidentialPool: await pool.getAddress(),
+    depositReceipt: depositReceiptAddress,
     poolLens: await poolLens.getAddress(),
     network: (await ethers.provider.getNetwork()).name,
     deployer: deployer.address,

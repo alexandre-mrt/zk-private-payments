@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "./MerkleTree.sol";
+import "./DepositReceipt.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
@@ -184,6 +185,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Ordered list of every withdrawal record (append-only)
     WithdrawalRecord[] public withdrawalRecords;
 
+    // -------------------------------------------------------------------------
+    // Deposit receipt NFT
+    // -------------------------------------------------------------------------
+
+    /// @notice Optional soulbound ERC721 receipt minted on every deposit.
+    /// @dev When set to the zero address (default), no receipt is minted.
+    DepositReceipt public depositReceipt;
+
     /// @notice Tracks whether an address has ever deposited (for unique depositor count)
     /// @dev Private — callers use `uniqueDepositorCount` for the aggregated metric.
     mapping(address => bool) private uniqueDepositors;
@@ -295,6 +304,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Emitted when the deposit cooldown period is updated
     /// @param newCooldown New cooldown duration in seconds (0 = no cooldown)
     event DepositCooldownUpdated(uint256 newCooldown);
+
+    /// @notice Emitted when the deposit receipt contract address is updated
+    /// @param receipt New receipt contract address (address(0) to disable)
+    event DepositReceiptSet(address indexed receipt);
 
     /// @notice Deploys the pool and wires up both verifiers and the Merkle tree
     /// @param _transferVerifier  Address of the deployed ITransferVerifier contract
@@ -536,6 +549,15 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         emit AllowlistToggled(_enabled);
     }
 
+    /// @notice Sets the deposit receipt contract address
+    /// @dev Pass address(0) to disable receipt minting. Only callable by the owner.
+    ///      Low-risk admin function — no timelock required.
+    /// @param _receipt Address of the deployed DepositReceipt contract (or address(0) to disable)
+    function setDepositReceipt(address _receipt) external onlyOwner {
+        depositReceipt = DepositReceipt(_receipt);
+        emit DepositReceiptSet(_receipt);
+    }
+
     /// @notice Adds or removes a single address from the depositor allowlist
     /// @dev Only callable by the owner.
     /// @param _account Address to update
@@ -637,6 +659,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         }
 
         emit Deposit(_commitment, insertedIndex, msg.value, block.timestamp);
+
+        if (address(depositReceipt) != address(0)) {
+            depositReceipt.mint(msg.sender, _commitment, msg.value);
+        }
     }
 
     /// @notice Deposit multiple notes in a single transaction for gas efficiency.
@@ -683,6 +709,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
             commitmentIndex[_commitments[i]] = insertedIndex;
 
             emit Deposit(_commitments[i], insertedIndex, _amounts[i], block.timestamp);
+
+            if (address(depositReceipt) != address(0)) {
+                depositReceipt.mint(msg.sender, _commitments[i], _amounts[i]);
+            }
         }
         lastDepositBlock = block.number;
         lastDepositTime[msg.sender] = block.timestamp;
