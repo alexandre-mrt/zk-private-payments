@@ -1551,4 +1551,265 @@ describe("ConfidentialPool", function () {
       expect(history.some((r) => r === lastRoot)).to.be.true;
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 10. Analytics / Stats
+  // -------------------------------------------------------------------------
+
+  describe("Analytics", function () {
+    it("totalDeposited starts at 0", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.totalDeposited()).to.equal(0n);
+    });
+
+    it("totalDeposited increments on deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const value = ethers.parseEther("1.5");
+      await pool.connect(alice).deposit(randomCommitment(), { value });
+      expect(await pool.totalDeposited()).to.equal(value);
+    });
+
+    it("totalDeposited accumulates across multiple deposits", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+      const v1 = ethers.parseEther("1");
+      const v2 = ethers.parseEther("2");
+      await pool.connect(alice).deposit(randomCommitment(), { value: v1 });
+      await pool.connect(bob).deposit(randomCommitment(), { value: v2 });
+      expect(await pool.totalDeposited()).to.equal(v1 + v2);
+    });
+
+    it("totalDeposited increments on batchDeposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const amounts = [ethers.parseEther("1"), ethers.parseEther("2")];
+      const total = amounts[0] + amounts[1];
+      await pool.connect(alice).batchDeposit(
+        [randomCommitment(), randomCommitment()],
+        amounts,
+        { value: total }
+      );
+      expect(await pool.totalDeposited()).to.equal(total);
+    });
+
+    it("totalWithdrawn starts at 0", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.totalWithdrawn()).to.equal(0n);
+    });
+
+    it("totalWithdrawn increments on withdrawal", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const depositValue = ethers.parseEther("2");
+      const withdrawAmount = ethers.parseEther("1");
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), depositValue);
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        withdrawAmount,
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+      expect(await pool.totalWithdrawn()).to.equal(withdrawAmount);
+    });
+
+    it("totalWithdrawn accumulates across multiple withdrawals", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const v1 = ethers.parseEther("1");
+      const v2 = ethers.parseEther("0.5");
+
+      const root1 = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("2"));
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root1,
+        randomCommitment(),
+        v1,
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+      const root2 = await pool.getLastRoot();
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root2,
+        randomCommitment(),
+        v2,
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+      expect(await pool.totalWithdrawn()).to.equal(v1 + v2);
+    });
+
+    it("withdrawalCount starts at 0", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.withdrawalCount()).to.equal(0n);
+    });
+
+    it("withdrawalCount increments on each withdrawal", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const depositValue = ethers.parseEther("3");
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), depositValue);
+
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        ethers.parseEther("1"),
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+      expect(await pool.withdrawalCount()).to.equal(1n);
+
+      const root2 = await pool.getLastRoot();
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root2,
+        randomCommitment(),
+        ethers.parseEther("1"),
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+      expect(await pool.withdrawalCount()).to.equal(2n);
+    });
+
+    it("totalTransfers starts at 0", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.totalTransfers()).to.equal(0n);
+    });
+
+    it("totalTransfers increments on each transfer", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
+
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        randomCommitment(),
+        randomCommitment()
+      );
+      expect(await pool.totalTransfers()).to.equal(1n);
+
+      const root2 = await pool.getLastRoot();
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root2,
+        randomCommitment(),
+        randomCommitment(),
+        randomCommitment()
+      );
+      expect(await pool.totalTransfers()).to.equal(2n);
+    });
+
+    it("uniqueDepositorCount starts at 0", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.uniqueDepositorCount()).to.equal(0n);
+    });
+
+    it("uniqueDepositorCount increments for the first deposit by a new address", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      expect(await pool.uniqueDepositorCount()).to.equal(1n);
+      await pool.connect(bob).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      expect(await pool.uniqueDepositorCount()).to.equal(2n);
+    });
+
+    it("uniqueDepositorCount does not increment for repeat deposits by same address", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      expect(await pool.uniqueDepositorCount()).to.equal(1n);
+    });
+
+    it("uniqueDepositorCount tracks batchDeposit callers as unique depositors", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const amounts = [ethers.parseEther("1"), ethers.parseEther("1")];
+      const total = amounts[0] + amounts[1];
+      await pool.connect(alice).batchDeposit(
+        [randomCommitment(), randomCommitment()],
+        amounts,
+        { value: total }
+      );
+      expect(await pool.uniqueDepositorCount()).to.equal(1n);
+    });
+
+    it("getPoolStats returns all values correctly", async function () {
+      const { pool, alice, bob } = await loadFixture(deployPoolFixture);
+
+      const depositValue = ethers.parseEther("3");
+      const withdrawAmount = ethers.parseEther("1");
+
+      // Two distinct depositors
+      await pool.connect(alice).deposit(randomCommitment(), { value: depositValue });
+      await pool.connect(bob).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+
+      const rootAfterDeposits = await pool.getLastRoot();
+
+      // One transfer
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        rootAfterDeposits,
+        randomCommitment(),
+        randomCommitment(),
+        randomCommitment()
+      );
+
+      const rootAfterTransfer = await pool.getLastRoot();
+
+      // One withdrawal of 1 ETH from alice's 3 ETH deposit
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        rootAfterTransfer,
+        randomCommitment(),
+        withdrawAmount,
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+
+      const stats = await pool.getPoolStats();
+      // _totalDeposited
+      expect(stats[0]).to.equal(depositValue + ethers.parseEther("1"));
+      // _totalWithdrawn
+      expect(stats[1]).to.equal(withdrawAmount);
+      // _totalTransfers
+      expect(stats[2]).to.equal(1n);
+      // _depositCount (nextIndex: 2 deposits + 2 transfer outputs = 4)
+      expect(stats[3]).to.equal(await pool.nextIndex());
+      // _withdrawalCount
+      expect(stats[4]).to.equal(1n);
+      // _uniqueDepositors
+      expect(stats[5]).to.equal(2n);
+      // _poolBalance
+      expect(stats[6]).to.equal(
+        await ethers.provider.getBalance(await pool.getAddress())
+      );
+    });
+  });
 });

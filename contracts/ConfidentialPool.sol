@@ -135,6 +135,29 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @dev Maps address → true if allowed to deposit
     mapping(address => bool) public allowlisted;
 
+    // -------------------------------------------------------------------------
+    // Analytics / stats
+    // -------------------------------------------------------------------------
+
+    /// @notice Cumulative ETH deposited into the pool (in wei)
+    uint256 public totalDeposited;
+
+    /// @notice Cumulative ETH withdrawn from the pool (in wei)
+    uint256 public totalWithdrawn;
+
+    /// @notice Total number of confidential transfers executed
+    uint256 public totalTransfers;
+
+    /// @notice Total number of withdrawal operations executed
+    uint256 public withdrawalCount;
+
+    /// @notice Tracks whether an address has ever deposited (for unique depositor count)
+    /// @dev Private — callers use `uniqueDepositorCount` for the aggregated metric.
+    mapping(address => bool) private uniqueDepositors;
+
+    /// @notice Number of distinct addresses that have deposited at least once
+    uint256 public uniqueDepositorCount;
+
     /// @notice Emitted when a new note commitment is deposited into the pool
     /// @param commitment  Poseidon commitment of the new note
     /// @param leafIndex   Position in the Merkle tree where the commitment was inserted
@@ -245,6 +268,34 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Get pool balance
     function getPoolBalance() external view returns (uint256) {
         return address(this).balance;
+    }
+
+    /// @notice Returns a snapshot of all cumulative pool analytics
+    /// @return _totalDeposited   Cumulative ETH deposited (wei)
+    /// @return _totalWithdrawn   Cumulative ETH withdrawn (wei)
+    /// @return _totalTransfers   Total confidential transfers executed
+    /// @return _depositCount     Total deposit operations (equals nextIndex)
+    /// @return _withdrawalCount  Total withdrawal operations executed
+    /// @return _uniqueDepositors Number of distinct depositor addresses
+    /// @return _poolBalance      Current pool ETH balance (wei)
+    function getPoolStats() external view returns (
+        uint256 _totalDeposited,
+        uint256 _totalWithdrawn,
+        uint256 _totalTransfers,
+        uint256 _depositCount,
+        uint256 _withdrawalCount,
+        uint256 _uniqueDepositors,
+        uint256 _poolBalance
+    ) {
+        return (
+            totalDeposited,
+            totalWithdrawn,
+            totalTransfers,
+            nextIndex,
+            withdrawalCount,
+            uniqueDepositorCount,
+            address(this).balance
+        );
     }
 
     /// @notice Pauses all deposit, transfer, and withdrawal operations
@@ -368,6 +419,12 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         commitments[_commitment] = true;
         lastDepositBlock = block.number;
 
+        totalDeposited += msg.value;
+        if (!uniqueDepositors[msg.sender]) {
+            uniqueDepositors[msg.sender] = true;
+            uniqueDepositorCount++;
+        }
+
         emit Deposit(_commitment, insertedIndex, msg.value, block.timestamp);
     }
 
@@ -407,6 +464,12 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
             emit Deposit(_commitments[i], insertedIndex, _amounts[i], block.timestamp);
         }
         lastDepositBlock = block.number;
+
+        totalDeposited += msg.value;
+        if (!uniqueDepositors[msg.sender]) {
+            uniqueDepositors[msg.sender] = true;
+            uniqueDepositorCount++;
+        }
     }
 
     /// @notice Executes a confidential transfer: spends one input note and creates two output notes
@@ -464,6 +527,8 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
         _insert(_outputCommitment2);
         commitments[_outputCommitment2] = true;
+
+        totalTransfers++;
 
         emit Transfer(_nullifier, _outputCommitment1, _outputCommitment2);
     }
@@ -540,6 +605,8 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
         // All state writes before ETH transfers (checks-effects-interactions)
         nullifiers[_nullifier] = true;
+        totalWithdrawn += _amount;
+        withdrawalCount++;
 
         if (_changeCommitment != 0) {
             require(
