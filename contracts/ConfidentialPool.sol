@@ -109,6 +109,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// Allows clients to look up the tree position of any commitment without scanning events.
     mapping(uint256 => uint32) public commitmentIndex;
 
+    /// @notice Reverse lookup: maps a leaf index to its commitment.
+    /// Allows clients to retrieve the commitment at any tree position without scanning events.
+    mapping(uint32 => uint256) public indexToCommitment;
+
     /// @notice Denomination allow-list for deposits
     /// @dev When non-empty, every `deposit` call must send exactly one of the listed
     ///      amounts. Maps denomination (in wei) → true if allowed.
@@ -380,6 +384,21 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         return commitmentIndex[_commitment];
     }
 
+    /// @notice Get a range of commitments by index (for pagination)
+    /// @param _from  First leaf index to return (inclusive)
+    /// @param _count Maximum number of commitments to return
+    /// @return Array of commitments from index _from up to min(_from + _count, nextIndex)
+    function getCommitments(uint32 _from, uint32 _count) external view returns (uint256[] memory) {
+        uint32 end = _from + _count;
+        if (end > nextIndex) end = nextIndex;
+        if (_from >= end) return new uint256[](0);
+        uint256[] memory result = new uint256[](end - _from);
+        for (uint32 i = _from; i < end; i++) {
+            result[i - _from] = indexToCommitment[i];
+        }
+        return result;
+    }
+
     /// @notice Get the current deposit count
     function getDepositCount() external view returns (uint32) {
         return nextIndex;
@@ -648,6 +667,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint32 insertedIndex = _insert(_commitment);
         commitments[_commitment] = true;
         commitmentIndex[_commitment] = insertedIndex;
+        indexToCommitment[insertedIndex] = _commitment;
         lastDepositBlock = block.number;
         lastDepositTime[msg.sender] = block.timestamp;
         depositsPerAddress[msg.sender]++;
@@ -707,6 +727,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
             uint32 insertedIndex = _insert(_commitments[i]);
             commitments[_commitments[i]] = true;
             commitmentIndex[_commitments[i]] = insertedIndex;
+            indexToCommitment[insertedIndex] = _commitments[i];
 
             emit Deposit(_commitments[i], insertedIndex, _amounts[i], block.timestamp);
 
@@ -779,10 +800,12 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint32 index1 = _insert(_outputCommitment1);
         commitments[_outputCommitment1] = true;
         commitmentIndex[_outputCommitment1] = index1;
+        indexToCommitment[index1] = _outputCommitment1;
 
         uint32 index2 = _insert(_outputCommitment2);
         commitments[_outputCommitment2] = true;
         commitmentIndex[_outputCommitment2] = index2;
+        indexToCommitment[index2] = _outputCommitment2;
 
         totalTransfers++;
 
@@ -893,6 +916,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
             uint32 changeIndex = _insert(_changeCommitment);
             commitments[_changeCommitment] = true;
             commitmentIndex[_changeCommitment] = changeIndex;
+            indexToCommitment[changeIndex] = _changeCommitment;
         }
 
         uint256 recipientAmount = _amount - _fee;
