@@ -71,6 +71,13 @@ async function main(): Promise<void> {
     console.log(`  Added denomination: ${ethers.formatEther(d)} ETH`);
   }
 
+  // 6. Deploy PoolLens
+  console.log("\nDeploying PoolLens...");
+  const PoolLens = await ethers.getContractFactory("PoolLens");
+  const poolLens = await PoolLens.deploy();
+  await poolLens.waitForDeployment();
+  console.log("PoolLens deployed to:", await poolLens.getAddress());
+
   // Save addresses
   const addresses = {
     hasher: hasherAddress,
@@ -78,6 +85,7 @@ async function main(): Promise<void> {
     withdrawVerifier: await withdrawVerifier.getAddress(),
     stealthRegistry: await stealthRegistry.getAddress(),
     confidentialPool: await pool.getAddress(),
+    poolLens: await poolLens.getAddress(),
     network: (await ethers.provider.getNetwork()).name,
     deployer: deployer.address,
     merkleTreeHeight: MERKLE_TREE_HEIGHT,
