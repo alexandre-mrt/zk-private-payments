@@ -1,4 +1,4 @@
-import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { deployHasher } from "./helpers/hasher";
@@ -29,6 +29,19 @@ async function deployPoolFixture() {
 }
 
 const ONE_ETH = ethers.parseEther("1");
+
+type Pool = Awaited<ReturnType<typeof deployPoolFixture>>["pool"];
+
+async function timelockExecute(pool: Pool, actionHash: string) {
+  await pool.queueAction(actionHash);
+  await time.increase(86401); // 1 day + 1 second
+}
+
+function actionHash(name: string, value: bigint): string {
+  return ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(["string", "uint256"], [name, value])
+  );
+}
 
 async function doDeposit(
   pool: Awaited<ReturnType<typeof deployPoolFixture>>["pool"],
@@ -73,6 +86,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("owner can set the limit and event is emitted", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await expect(pool.connect(owner).setMaxDepositsPerAddress(3n))
         .to.emit(pool, "MaxDepositsPerAddressUpdated")
         .withArgs(3n);
@@ -81,7 +95,9 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("owner can reset limit to 0 (unlimited)", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await pool.connect(owner).setMaxDepositsPerAddress(3n);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 0n));
       await pool.connect(owner).setMaxDepositsPerAddress(0n);
       expect(await pool.maxDepositsPerAddress()).to.equal(0n);
     });
@@ -90,6 +106,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
   describe("deposit() enforcement", function () {
     it("allows exactly maxDepositsPerAddress deposits", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await pool.connect(owner).setMaxDepositsPerAddress(3n);
       for (let i = 0; i < 3; i++) {
         await doDeposit(pool, alice);
@@ -99,6 +116,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("reverts on the 4th deposit when limit is 3", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await pool.connect(owner).setMaxDepositsPerAddress(3n);
       for (let i = 0; i < 3; i++) {
         await doDeposit(pool, alice);
@@ -111,6 +129,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("limit is per-address: different addresses are independent", async function () {
       const { pool, owner, alice, bob } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 2n));
       await pool.connect(owner).setMaxDepositsPerAddress(2n);
       await doDeposit(pool, alice);
       await doDeposit(pool, alice);
@@ -121,9 +140,11 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("removing the limit allows further deposits after hitting the old limit", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 2n));
       await pool.connect(owner).setMaxDepositsPerAddress(2n);
       await doDeposit(pool, alice);
       await doDeposit(pool, alice);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 0n));
       await pool.connect(owner).setMaxDepositsPerAddress(0n);
       await doDeposit(pool, alice);
       expect(await pool.depositsPerAddress(alice.address)).to.equal(3n);
@@ -133,6 +154,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
   describe("batchDeposit() enforcement", function () {
     it("allows a batch that fits within the limit", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await pool.connect(owner).setMaxDepositsPerAddress(3n);
       const commitments = [randomCommitment(), randomCommitment()];
       const amounts = [ONE_ETH, ONE_ETH];
@@ -144,6 +166,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("reverts when batch would exceed the limit", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await pool.connect(owner).setMaxDepositsPerAddress(3n);
       // first use 2 deposits
       await doDeposit(pool, alice);
@@ -160,6 +183,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("allows batch exactly up to the remaining limit", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await pool.connect(owner).setMaxDepositsPerAddress(3n);
       await doDeposit(pool, alice); // 1 used, 2 remaining
       const commitments = [randomCommitment(), randomCommitment()];
@@ -184,6 +208,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
   describe("getRemainingDeposits", function () {
     it("returns correct remaining count after some deposits", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await pool.connect(owner).setMaxDepositsPerAddress(3n);
       await doDeposit(pool, alice);
       expect(await pool.getRemainingDeposits(alice.address)).to.equal(2n);
@@ -191,6 +216,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("returns 0 when limit is fully consumed", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await pool.connect(owner).setMaxDepositsPerAddress(3n);
       for (let i = 0; i < 3; i++) {
         await doDeposit(pool, alice);
@@ -200,7 +226,9 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("returns max uint256 when limit is 0 (unlimited)", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 3n));
       await pool.connect(owner).setMaxDepositsPerAddress(3n);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 0n));
       await pool.connect(owner).setMaxDepositsPerAddress(0n);
       expect(await pool.getRemainingDeposits(alice.address)).to.equal(
         ethers.MaxUint256
@@ -209,6 +237,7 @@ describe("ConfidentialPool — per-address deposit limit", function () {
 
     it("reflects batch deposits correctly", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMaxDepositsPerAddress", 5n));
       await pool.connect(owner).setMaxDepositsPerAddress(5n);
       const commitments = [randomCommitment(), randomCommitment()];
       const amounts = [ONE_ETH, ONE_ETH];

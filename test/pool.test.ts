@@ -1,4 +1,4 @@
-import { loadFixture, mine } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { loadFixture, mine, time } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { deployHasher } from "./helpers/hasher";
@@ -67,6 +67,25 @@ async function depositAndGetRoot(
 ) {
   await pool.connect(signer).deposit(commitment, { value });
   return pool.getLastRoot();
+}
+
+/**
+ * Queues a governance action and advances time past the 1-day timelock delay.
+ * The action hash must match the hash used inside the timelocked function.
+ */
+async function timelockExecute(
+  pool: Awaited<ReturnType<typeof deployPoolFixture>>["pool"],
+  actionHash: string
+) {
+  await pool.queueAction(actionHash);
+  await time.increase(86401); // 1 day + 1 second
+}
+
+/** Computes the action hash for a timelocked call with a single uint256 parameter. */
+function actionHash(name: string, value: bigint): string {
+  return ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(["string", "uint256"], [name, value])
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1113,6 +1132,7 @@ describe("ConfidentialPool", function () {
     it("respects denomination restrictions", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
       const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d));
       await pool.connect(owner).addDenomination(d);
 
       const commitments = [randomCommitment(), randomCommitment()];
@@ -1127,6 +1147,7 @@ describe("ConfidentialPool", function () {
     it("accepts batch when all amounts match allowed denomination", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
       const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d));
       await pool.connect(owner).addDenomination(d);
 
       const commitments = [randomCommitment(), randomCommitment()];
@@ -1260,6 +1281,7 @@ describe("ConfidentialPool", function () {
     it("addDenomination by owner succeeds and emits event", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
       const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d));
       await expect(pool.connect(owner).addDenomination(d))
         .to.emit(pool, "DenominationAdded")
         .withArgs(d);
@@ -1270,7 +1292,9 @@ describe("ConfidentialPool", function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
       const d1 = ethers.parseEther("0.1");
       const d2 = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d1));
       await pool.connect(owner).addDenomination(d1);
+      await timelockExecute(pool, actionHash("addDenomination", d2));
       await pool.connect(owner).addDenomination(d2);
       const list = await pool.getDenominations();
       expect(list.length).to.equal(2);
@@ -1281,7 +1305,9 @@ describe("ConfidentialPool", function () {
     it("removeDenomination by owner succeeds and emits event", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
       const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d));
       await pool.connect(owner).addDenomination(d);
+      await timelockExecute(pool, actionHash("removeDenomination", d));
       await expect(pool.connect(owner).removeDenomination(d))
         .to.emit(pool, "DenominationRemoved")
         .withArgs(d);
@@ -1291,6 +1317,7 @@ describe("ConfidentialPool", function () {
     it("deposit with allowed denomination succeeds", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
       const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d));
       await pool.connect(owner).addDenomination(d);
       const commitment = randomCommitment();
       await expect(pool.connect(alice).deposit(commitment, { value: d }))
@@ -1299,7 +1326,9 @@ describe("ConfidentialPool", function () {
 
     it("deposit with non-allowed denomination reverts", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
-      await pool.connect(owner).addDenomination(ethers.parseEther("1"));
+      const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d));
+      await pool.connect(owner).addDenomination(d);
       await expect(
         pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("0.5") })
       ).to.be.revertedWith("ConfidentialPool: amount not an allowed denomination");
@@ -1314,14 +1343,17 @@ describe("ConfidentialPool", function () {
 
     it("only owner can remove denomination", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
-      await pool.connect(owner).addDenomination(ethers.parseEther("1"));
+      const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d));
+      await pool.connect(owner).addDenomination(d);
       await expect(
-        pool.connect(alice).removeDenomination(ethers.parseEther("1"))
+        pool.connect(alice).removeDenomination(d)
       ).to.be.revertedWithCustomError(pool, "OwnableUnauthorizedAccount");
     });
 
     it("addDenomination reverts for zero value", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("addDenomination", 0n));
       await expect(
         pool.connect(owner).addDenomination(0n)
       ).to.be.revertedWith("ConfidentialPool: zero denomination");
@@ -1330,7 +1362,9 @@ describe("ConfidentialPool", function () {
     it("addDenomination reverts for duplicate", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
       const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d));
       await pool.connect(owner).addDenomination(d);
+      await timelockExecute(pool, actionHash("addDenomination", d));
       await expect(
         pool.connect(owner).addDenomination(d)
       ).to.be.revertedWith("ConfidentialPool: denomination exists");
@@ -1338,8 +1372,10 @@ describe("ConfidentialPool", function () {
 
     it("removeDenomination reverts when denomination not found", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
+      const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("removeDenomination", d));
       await expect(
-        pool.connect(owner).removeDenomination(ethers.parseEther("1"))
+        pool.connect(owner).removeDenomination(d)
       ).to.be.revertedWith("ConfidentialPool: denomination not found");
     });
 
@@ -1357,7 +1393,9 @@ describe("ConfidentialPool", function () {
     it("deposit after removing denomination reverts with non-allowed amount", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
       const d = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("addDenomination", d));
       await pool.connect(owner).addDenomination(d);
+      await timelockExecute(pool, actionHash("removeDenomination", d));
       await pool.connect(owner).removeDenomination(d);
       // denominationList still has one entry but allowedDenominations[d] is false
       await expect(
@@ -1403,6 +1441,7 @@ describe("ConfidentialPool", function () {
 
     it("setMinDepositAge emits MinDepositAgeUpdated event", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMinDepositAge", 5n));
       await expect(pool.connect(owner).setMinDepositAge(5n))
         .to.emit(pool, "MinDepositAgeUpdated")
         .withArgs(5n);
@@ -1411,6 +1450,7 @@ describe("ConfidentialPool", function () {
     it("reverts withdrawal when called too soon after last deposit", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
 
+      await timelockExecute(pool, actionHash("setMinDepositAge", 5n));
       await pool.connect(owner).setMinDepositAge(5n);
 
       const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
@@ -1435,6 +1475,7 @@ describe("ConfidentialPool", function () {
     it("allows withdrawal after the required number of blocks have elapsed", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
 
+      await timelockExecute(pool, actionHash("setMinDepositAge", 5n));
       await pool.connect(owner).setMinDepositAge(5n);
 
       const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
@@ -1461,11 +1502,13 @@ describe("ConfidentialPool", function () {
     it("resetting minDepositAge to 0 allows immediate withdrawal", async function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
 
+      await timelockExecute(pool, actionHash("setMinDepositAge", 5n));
       await pool.connect(owner).setMinDepositAge(5n);
 
       const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
 
       // Reset delay to 0
+      await timelockExecute(pool, actionHash("setMinDepositAge", 0n));
       await pool.connect(owner).setMinDepositAge(0n);
 
       // Should now succeed immediately
@@ -2054,6 +2097,7 @@ describe("ConfidentialPool", function () {
     it("getPoolHealth currentMaxWithdraw reflects setMaxWithdrawAmount", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
       const cap = ethers.parseEther("5");
+      await timelockExecute(pool, actionHash("setMaxWithdrawAmount", cap));
       await pool.connect(owner).setMaxWithdrawAmount(cap);
       const health = await pool.getPoolHealth();
       expect(health[5]).to.equal(cap);
@@ -2061,6 +2105,7 @@ describe("ConfidentialPool", function () {
 
     it("getPoolHealth currentMinAge reflects setMinDepositAge", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
+      await timelockExecute(pool, actionHash("setMinDepositAge", 100n));
       await pool.connect(owner).setMinDepositAge(100n);
       const health = await pool.getPoolHealth();
       expect(health[6]).to.equal(100n);
@@ -2081,6 +2126,109 @@ describe("ConfidentialPool", function () {
       const health = await pool.getPoolHealth();
       const activeCount = await pool.getActiveNoteCount();
       expect(health[0]).to.equal(activeCount);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 11. Timelock governance
+  // -------------------------------------------------------------------------
+
+  describe("Timelock", function () {
+    it("queueAction emits ActionQueued with correct executeAfter", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const hash = actionHash("setMaxWithdrawAmount", ethers.parseEther("1"));
+      const tx = await pool.connect(owner).queueAction(hash);
+      const receipt = await tx.wait();
+      const block = await ethers.provider.getBlock(receipt!.blockNumber);
+      const expectedExecuteAfter = BigInt(block!.timestamp) + BigInt(86400); // 1 day
+      await expect(tx)
+        .to.emit(pool, "ActionQueued")
+        .withArgs(hash, expectedExecuteAfter);
+    });
+
+    it("queue + execute after delay succeeds", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const cap = ethers.parseEther("3");
+      const hash = actionHash("setMaxWithdrawAmount", cap);
+      await timelockExecute(pool, hash);
+      await expect(pool.connect(owner).setMaxWithdrawAmount(cap))
+        .to.emit(pool, "ActionExecuted")
+        .withArgs(hash);
+      expect(await pool.maxWithdrawAmount()).to.equal(cap);
+    });
+
+    it("execute before delay reverts", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const cap = ethers.parseEther("3");
+      const hash = actionHash("setMaxWithdrawAmount", cap);
+      await pool.connect(owner).queueAction(hash);
+      // Do NOT advance time — timelock not expired
+      await expect(
+        pool.connect(owner).setMaxWithdrawAmount(cap)
+      ).to.be.revertedWith("ConfidentialPool: timelock not expired");
+    });
+
+    it("wrong hash reverts", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const queued = actionHash("setMaxWithdrawAmount", ethers.parseEther("3"));
+      const wrong = actionHash("setMaxWithdrawAmount", ethers.parseEther("5"));
+      await pool.connect(owner).queueAction(queued);
+      await time.increase(86401);
+      await expect(
+        pool.connect(owner).setMaxWithdrawAmount(ethers.parseEther("5"))
+      ).to.be.revertedWith("ConfidentialPool: action not queued");
+    });
+
+    it("cancel pending action emits ActionCancelled and clears state", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const hash = actionHash("setMaxWithdrawAmount", ethers.parseEther("1"));
+      await pool.connect(owner).queueAction(hash);
+      await expect(pool.connect(owner).cancelAction())
+        .to.emit(pool, "ActionCancelled")
+        .withArgs(hash);
+      const pending = await pool.pendingAction();
+      expect(pending.actionHash).to.equal(ethers.ZeroHash);
+    });
+
+    it("cancel reverts when no action is pending", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      await expect(pool.connect(owner).cancelAction()).to.be.revertedWith(
+        "ConfidentialPool: no pending action"
+      );
+    });
+
+    it("executing action clears pendingAction slot", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const cap = ethers.parseEther("2");
+      const hash = actionHash("setMaxWithdrawAmount", cap);
+      await timelockExecute(pool, hash);
+      await pool.connect(owner).setMaxWithdrawAmount(cap);
+      const pending = await pool.pendingAction();
+      expect(pending.actionHash).to.equal(ethers.ZeroHash);
+    });
+
+    it("only owner can queue an action", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const hash = actionHash("setMaxWithdrawAmount", ethers.parseEther("1"));
+      await expect(pool.connect(alice).queueAction(hash)).to.be.revertedWithCustomError(
+        pool,
+        "OwnableUnauthorizedAccount"
+      );
+    });
+
+    it("only owner can cancel an action", async function () {
+      const { pool, owner, alice } = await loadFixture(deployPoolFixture);
+      const hash = actionHash("setMaxWithdrawAmount", ethers.parseEther("1"));
+      await pool.connect(owner).queueAction(hash);
+      await expect(pool.connect(alice).cancelAction()).to.be.revertedWithCustomError(
+        pool,
+        "OwnableUnauthorizedAccount"
+      );
+    });
+
+    it("TIMELOCK_DELAY is 1 day", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.TIMELOCK_DELAY()).to.equal(86400n);
     });
   });
 });

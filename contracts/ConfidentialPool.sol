@@ -169,6 +169,22 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Number of distinct addresses that have deposited at least once
     uint256 public uniqueDepositorCount;
 
+    // -------------------------------------------------------------------------
+    // Timelock governance
+    // -------------------------------------------------------------------------
+
+    /// @notice Mandatory delay between queuing a sensitive parameter change and executing it
+    uint256 public constant TIMELOCK_DELAY = 1 days;
+
+    /// @notice Represents a governance action pending execution after the timelock delay
+    struct PendingAction {
+        bytes32 actionHash;
+        uint256 executeAfter;
+    }
+
+    /// @notice The single pending governance action (only one may be queued at a time)
+    PendingAction public pendingAction;
+
     /// @notice Emitted when a new note commitment is deposited into the pool
     /// @param commitment  Poseidon commitment of the new note
     /// @param leafIndex   Position in the Merkle tree where the commitment was inserted
@@ -214,6 +230,19 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Emitted when a denomination is removed from the allow-list
     /// @param denomination The denomination value in wei
     event DenominationRemoved(uint256 denomination);
+
+    /// @notice Emitted when a governance action is queued with its scheduled execution timestamp
+    /// @param actionHash  keccak256 hash identifying the action
+    /// @param executeAfter Unix timestamp after which the action may be executed
+    event ActionQueued(bytes32 indexed actionHash, uint256 executeAfter);
+
+    /// @notice Emitted when a queued governance action is successfully executed
+    /// @param actionHash keccak256 hash of the executed action
+    event ActionExecuted(bytes32 indexed actionHash);
+
+    /// @notice Emitted when a queued governance action is cancelled by the owner
+    /// @param actionHash keccak256 hash of the cancelled action
+    event ActionCancelled(bytes32 indexed actionHash);
 
     /// @notice Emitted when the per-transaction withdrawal cap is updated
     /// @param newMax New maximum withdrawal amount in wei (0 = no limit)
@@ -263,6 +292,34 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     modifier onlyDeployedChain() {
         require(block.chainid == deployedChainId, "wrong chain");
         _;
+    }
+
+    /// @notice Validates that the given action is queued and the timelock has expired,
+    ///         then clears the pending slot and emits ActionExecuted after the guarded body runs.
+    modifier timelockReady(bytes32 _actionHash) {
+        require(pendingAction.actionHash == _actionHash, "ConfidentialPool: action not queued");
+        require(block.timestamp >= pendingAction.executeAfter, "ConfidentialPool: timelock not expired");
+        _;
+        delete pendingAction;
+        emit ActionExecuted(_actionHash);
+    }
+
+    /// @notice Queues a governance action identified by its hash
+    /// @dev Only one action may be queued at a time. The action becomes executable
+    ///      after TIMELOCK_DELAY seconds. Callers should compute the hash off-chain
+    ///      as keccak256(abi.encode(functionSelector, ...params)).
+    /// @param _actionHash keccak256 hash identifying the intended action and its parameters
+    function queueAction(bytes32 _actionHash) external onlyOwner {
+        pendingAction = PendingAction(_actionHash, block.timestamp + TIMELOCK_DELAY);
+        emit ActionQueued(_actionHash, block.timestamp + TIMELOCK_DELAY);
+    }
+
+    /// @notice Cancels the currently queued governance action
+    /// @dev Reverts if no action is pending.
+    function cancelAction() external onlyOwner {
+        require(pendingAction.actionHash != bytes32(0), "ConfidentialPool: no pending action");
+        emit ActionCancelled(pendingAction.actionHash);
+        delete pendingAction;
     }
 
     /// @notice Check if a nullifier has been spent
@@ -361,9 +418,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     }
 
     /// @notice Sets the maximum number of deposits allowed per address.
-    /// @dev Set to 0 to remove the limit (default). Only callable by the owner.
+    /// @dev Set to 0 to remove the limit (default). Only callable by the owner after timelock.
+    ///      Queue with: keccak256(abi.encode("setMaxDepositsPerAddress", _max))
     /// @param _max Maximum deposits per address (0 = unlimited).
-    function setMaxDepositsPerAddress(uint256 _max) external onlyOwner {
+    function setMaxDepositsPerAddress(uint256 _max)
+        external
+        onlyOwner
+        timelockReady(keccak256(abi.encode("setMaxDepositsPerAddress", _max)))
+    {
         maxDepositsPerAddress = _max;
         emit MaxDepositsPerAddressUpdated(_max);
     }
@@ -387,9 +449,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     function unpause() external onlyOwner { _unpause(); }
 
     /// @notice Sets the maximum ETH amount that can be withdrawn in a single transaction
-    /// @dev Set to 0 to disable the cap. Only callable by the owner.
+    /// @dev Set to 0 to disable the cap. Only callable by the owner after timelock.
+    ///      Queue with: keccak256(abi.encode("setMaxWithdrawAmount", _maxAmount))
     /// @param _maxAmount New cap in wei (0 = no limit)
-    function setMaxWithdrawAmount(uint256 _maxAmount) external onlyOwner {
+    function setMaxWithdrawAmount(uint256 _maxAmount)
+        external
+        onlyOwner
+        timelockReady(keccak256(abi.encode("setMaxWithdrawAmount", _maxAmount)))
+    {
         maxWithdrawAmount = _maxAmount;
         emit MaxWithdrawAmountUpdated(_maxAmount);
     }
@@ -397,8 +464,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Sets the minimum number of blocks that must pass after the last deposit before any withdrawal
     /// @dev Set to 0 to disable (default). Applies pool-wide — not per deposit.
     ///      This prevents flash-loan-style deposit-then-withdraw-in-same-block attacks.
+    ///      Only callable by the owner after timelock.
+    ///      Queue with: keccak256(abi.encode("setMinDepositAge", _age))
     /// @param _age Minimum block gap required (0 = no restriction)
-    function setMinDepositAge(uint256 _age) external onlyOwner {
+    function setMinDepositAge(uint256 _age)
+        external
+        onlyOwner
+        timelockReady(keccak256(abi.encode("setMinDepositAge", _age)))
+    {
         minDepositAge = _age;
         emit MinDepositAgeUpdated(_age);
     }
@@ -446,9 +519,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
     /// @notice Adds a denomination to the allow-list
     /// @dev When the list is non-empty, deposits must match an allowed denomination.
-    ///      Only callable by the owner. Reverts if the denomination is already present.
+    ///      Only callable by the owner after timelock. Reverts if the denomination is already present.
+    ///      Queue with: keccak256(abi.encode("addDenomination", _denomination))
     /// @param _denomination The deposit amount in wei to allow
-    function addDenomination(uint256 _denomination) external onlyOwner {
+    function addDenomination(uint256 _denomination)
+        external
+        onlyOwner
+        timelockReady(keccak256(abi.encode("addDenomination", _denomination)))
+    {
         require(_denomination > 0, "ConfidentialPool: zero denomination");
         require(!allowedDenominations[_denomination], "ConfidentialPool: denomination exists");
         allowedDenominations[_denomination] = true;
@@ -458,9 +536,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
     /// @notice Removes a denomination from the allow-list
     /// @dev The denomination is marked as disallowed but remains in `denominationList`.
-    ///      Only callable by the owner. Reverts if the denomination was not previously added.
+    ///      Only callable by the owner after timelock. Reverts if the denomination was not previously added.
+    ///      Queue with: keccak256(abi.encode("removeDenomination", _denomination))
     /// @param _denomination The deposit amount in wei to disallow
-    function removeDenomination(uint256 _denomination) external onlyOwner {
+    function removeDenomination(uint256 _denomination)
+        external
+        onlyOwner
+        timelockReady(keccak256(abi.encode("removeDenomination", _denomination)))
+    {
         require(allowedDenominations[_denomination], "ConfidentialPool: denomination not found");
         allowedDenominations[_denomination] = false;
         emit DenominationRemoved(_denomination);

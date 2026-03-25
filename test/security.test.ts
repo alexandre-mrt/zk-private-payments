@@ -1,4 +1,4 @@
-import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { deployHasher } from "./helpers/hasher";
@@ -44,6 +44,23 @@ async function deployPoolFixture() {
   );
 
   return { pool, owner, alice, bob };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+type Pool = Awaited<ReturnType<typeof deployPoolFixture>>["pool"];
+
+async function timelockExecute(pool: Pool, actionHash: string) {
+  await pool.queueAction(actionHash);
+  await time.increase(86401); // 1 day + 1 second
+}
+
+function actionHash(name: string, value: bigint): string {
+  return ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(["string", "uint256"], [name, value])
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +197,7 @@ describe("ConfidentialPool — Security", function () {
     it("owner can set maxWithdrawAmount", async function () {
       const { pool, owner } = await loadFixture(deployPoolFixture);
       const cap = ethers.parseEther("2");
+      await timelockExecute(pool, actionHash("setMaxWithdrawAmount", cap));
       await expect(pool.connect(owner).setMaxWithdrawAmount(cap))
         .to.emit(pool, "MaxWithdrawAmountUpdated")
         .withArgs(cap);
@@ -197,6 +215,7 @@ describe("ConfidentialPool — Security", function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
 
       const cap = ethers.parseEther("0.5");
+      await timelockExecute(pool, actionHash("setMaxWithdrawAmount", cap));
       await pool.connect(owner).setMaxWithdrawAmount(cap);
 
       const commitment = randomCommitment();
@@ -225,6 +244,7 @@ describe("ConfidentialPool — Security", function () {
       const { pool, owner, alice } = await loadFixture(deployPoolFixture);
 
       const cap = ethers.parseEther("1");
+      await timelockExecute(pool, actionHash("setMaxWithdrawAmount", cap));
       await pool.connect(owner).setMaxWithdrawAmount(cap);
 
       const commitment = randomCommitment();
