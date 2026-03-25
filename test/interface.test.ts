@@ -360,6 +360,22 @@ describe("Contract Interface", function () {
       const { pool } = await loadFixture(deployFixture);
       expect(await pool.getWithdrawalRecordCount()).to.equal(0n);
     });
+
+    it("supportsInterface returns true for ERC165 (0x01ffc9a7)", async function () {
+      const { pool } = await loadFixture(deployFixture);
+      expect(await pool.supportsInterface("0x01ffc9a7")).to.equal(true);
+    });
+
+    it("supportsInterface returns true for POOL_INTERFACE_ID", async function () {
+      const { pool } = await loadFixture(deployFixture);
+      const poolInterfaceId = await pool.POOL_INTERFACE_ID();
+      expect(await pool.supportsInterface(poolInterfaceId)).to.equal(true);
+    });
+
+    it("supportsInterface returns false for unknown bytes4", async function () {
+      const { pool } = await loadFixture(deployFixture);
+      expect(await pool.supportsInterface("0xdeadbeef")).to.equal(false);
+    });
   });
 
   // -------------------------------------------------------------------------

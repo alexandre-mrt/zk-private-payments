@@ -219,6 +219,12 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Protocol version string.
     string public constant VERSION = "1.0.0";
 
+    /// @notice ERC165 interface ID for this contract.
+    /// Computed as: bytes4(keccak256("deposit(uint256)")) ^ bytes4(keccak256("transfer(uint256[2],uint256[2][2],uint256[2],uint256,uint256,uint256,uint256)"))
+    bytes4 public constant POOL_INTERFACE_ID =
+        bytes4(keccak256("deposit(uint256)")) ^
+        bytes4(keccak256("transfer(uint256[2],uint256[2][2],uint256[2],uint256,uint256,uint256,uint256)"));
+
     /// @notice Mandatory delay between queuing a sensitive parameter change and executing it
     uint256 public constant TIMELOCK_DELAY = 1 days;
 
@@ -383,6 +389,13 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Returns the protocol version string.
     function getVersion() external pure returns (string memory) {
         return VERSION;
+    }
+
+    /// @notice ERC165 interface detection.
+    /// @param interfaceId The 4-byte interface selector to query.
+    /// @return True for ERC165 (0x01ffc9a7) and the ConfidentialPool interface ID.
+    function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
+        return interfaceId == 0x01ffc9a7 || interfaceId == POOL_INTERFACE_ID;
     }
 
     /// @notice Check if a nullifier has been spent
