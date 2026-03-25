@@ -38,4 +38,21 @@ describe("PoolConstants", function () {
     const { pool } = await loadFixture(deployPoolFixture);
     expect(await pool.ROOT_HISTORY_SIZE()).to.equal(POOL_ROOT_HISTORY_SIZE);
   });
+
+  it("VERSION constant returns '1.0.0'", async function () {
+    const { pool } = await loadFixture(deployPoolFixture);
+    expect(await pool.VERSION()).to.equal("1.0.0");
+  });
+
+  it("getVersion() returns '1.0.0'", async function () {
+    const { pool } = await loadFixture(deployPoolFixture);
+    expect(await pool.getVersion()).to.equal("1.0.0");
+  });
+
+  it("VERSION is constant — same value on repeated calls", async function () {
+    const { pool } = await loadFixture(deployPoolFixture);
+    const first = await pool.VERSION();
+    const second = await pool.VERSION();
+    expect(first).to.equal(second);
+  });
 });

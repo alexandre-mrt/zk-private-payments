@@ -29,6 +29,9 @@ pragma solidity ^0.8.20;
 ///      these events off-chain, computes the shared secret using their viewing key, and
 ///      determines whether the stealth key matches — recovering the note if it does.
 contract StealthRegistry {
+    /// @notice Protocol version string.
+    string public constant VERSION = "1.0.0";
+
     /// @notice BabyJubjub affine public key
     /// @dev Coordinates are field elements over the BN254 scalar field
     struct ViewingKey {

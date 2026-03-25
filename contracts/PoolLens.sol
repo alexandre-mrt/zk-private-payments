@@ -27,6 +27,7 @@ contract PoolLens {
         uint256 minDepositAge;
         uint256 maxDepositsPerAddress;
         address owner;
+        string version;
     }
 
     /// @notice Aggregates all ConfidentialPool dashboard data into a single call
@@ -62,7 +63,8 @@ contract PoolLens {
             maxWithdrawAmount: pool.maxWithdrawAmount(),
             minDepositAge: pool.minDepositAge(),
             maxDepositsPerAddress: pool.maxDepositsPerAddress(),
-            owner: pool.owner()
+            owner: pool.owner(),
+            version: pool.getVersion()
         });
     }
 }

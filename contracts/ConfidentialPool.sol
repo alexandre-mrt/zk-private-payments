@@ -157,6 +157,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Tracks the last deposit timestamp per address for cooldown enforcement.
     mapping(address => uint256) public lastDepositTime;
 
+    /// @notice Maximum number of pool operations (deposit, transfer, withdraw) allowed per block (0 = unlimited).
+    /// @dev Anti-MEV measure. Does not require a timelock — needs to be adjustable quickly.
+    uint256 public maxOperationsPerBlock;
+
+    /// @notice Tracks the number of pool operations executed per block.
+    /// @dev Maps block number → operation count.
+    mapping(uint256 => uint256) public operationsPerBlock;
+
     // -------------------------------------------------------------------------
     // Analytics / stats
     // -------------------------------------------------------------------------
@@ -207,6 +215,9 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     // -------------------------------------------------------------------------
     // Timelock governance
     // -------------------------------------------------------------------------
+
+    /// @notice Protocol version string.
+    string public constant VERSION = "1.0.0";
 
     /// @notice Mandatory delay between queuing a sensitive parameter change and executing it
     uint256 public constant TIMELOCK_DELAY = 1 days;
@@ -313,6 +324,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @param receipt New receipt contract address (address(0) to disable)
     event DepositReceiptSet(address indexed receipt);
 
+    /// @notice Emitted when the per-block operation limit is updated
+    /// @param newMax New maximum operations per block (0 = unlimited)
+    event MaxOperationsPerBlockUpdated(uint256 newMax);
+
     /// @notice Deploys the pool and wires up both verifiers and the Merkle tree
     /// @param _transferVerifier  Address of the deployed ITransferVerifier contract
     /// @param _withdrawVerifier  Address of the deployed IWithdrawVerifier contract
@@ -363,6 +378,11 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         require(pendingAction.actionHash != bytes32(0), "ConfidentialPool: no pending action");
         emit ActionCancelled(pendingAction.actionHash);
         delete pendingAction;
+    }
+
+    /// @notice Returns the protocol version string.
+    function getVersion() external pure returns (string memory) {
+        return VERSION;
     }
 
     /// @notice Check if a nullifier has been spent
@@ -577,6 +597,15 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         emit DepositReceiptSet(_receipt);
     }
 
+    /// @notice Sets the maximum number of pool operations allowed per block
+    /// @dev Set to 0 to disable the limit (default). No timelock — this is a protective
+    ///      anti-MEV measure that must be adjustable quickly. Only callable by the owner.
+    /// @param _max Maximum operations per block (0 = unlimited)
+    function setMaxOperationsPerBlock(uint256 _max) external onlyOwner {
+        maxOperationsPerBlock = _max;
+        emit MaxOperationsPerBlockUpdated(_max);
+    }
+
     /// @notice Adds or removes a single address from the depositor allowlist
     /// @dev Only callable by the owner.
     /// @param _account Address to update
@@ -644,6 +673,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     ///      valid field element and must not already exist in the tree.
     /// @param _commitment Poseidon(amount, blinding, ownerPubKeyX) — the note commitment
     function deposit(uint256 _commitment) external payable nonReentrant whenNotPaused onlyDeployedChain {
+        if (maxOperationsPerBlock > 0) {
+            require(operationsPerBlock[block.number] < maxOperationsPerBlock, "ConfidentialPool: block operation limit");
+        }
+        operationsPerBlock[block.number]++;
         if (allowlistEnabled) {
             require(allowlisted[msg.sender], "ConfidentialPool: sender not allowlisted");
         }
@@ -692,12 +725,19 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint256[] calldata _commitments,
         uint256[] calldata _amounts
     ) external payable nonReentrant whenNotPaused onlyDeployedChain {
-        if (allowlistEnabled) {
-            require(allowlisted[msg.sender], "ConfidentialPool: sender not allowlisted");
-        }
         require(_commitments.length == _amounts.length, "ConfidentialPool: arrays length mismatch");
         require(_commitments.length > 0, "ConfidentialPool: empty batch");
         require(_commitments.length <= 10, "ConfidentialPool: batch too large");
+        if (maxOperationsPerBlock > 0) {
+            require(
+                operationsPerBlock[block.number] + _commitments.length <= maxOperationsPerBlock,
+                "ConfidentialPool: block operation limit"
+            );
+        }
+        operationsPerBlock[block.number] += _commitments.length;
+        if (allowlistEnabled) {
+            require(allowlisted[msg.sender], "ConfidentialPool: sender not allowlisted");
+        }
         if (maxDepositsPerAddress > 0) {
             require(
                 depositsPerAddress[msg.sender] + _commitments.length <= maxDepositsPerAddress,
@@ -771,6 +811,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint256 _outputCommitment1,
         uint256 _outputCommitment2
     ) external nonReentrant whenNotPaused onlyDeployedChain {
+        if (maxOperationsPerBlock > 0) {
+            require(operationsPerBlock[block.number] < maxOperationsPerBlock, "ConfidentialPool: block operation limit");
+        }
+        operationsPerBlock[block.number]++;
         require(_nullifier < FIELD_SIZE, "ConfidentialPool: nullifier >= field size");
         require(!nullifiers[_nullifier], "ConfidentialPool: nullifier already spent");
         require(isKnownRoot(_root), "ConfidentialPool: unknown root");
@@ -865,6 +909,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         address payable _relayer,
         uint256 _fee
     ) external nonReentrant whenNotPaused onlyDeployedChain {
+        if (maxOperationsPerBlock > 0) {
+            require(operationsPerBlock[block.number] < maxOperationsPerBlock, "ConfidentialPool: block operation limit");
+        }
+        operationsPerBlock[block.number]++;
         require(_fee <= _amount, "ConfidentialPool: fee exceeds amount");
         require(_nullifier < FIELD_SIZE, "ConfidentialPool: nullifier >= field size");
         require(!nullifiers[_nullifier], "ConfidentialPool: nullifier already spent");
