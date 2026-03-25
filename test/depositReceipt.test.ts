@@ -204,4 +204,60 @@ describe("DepositReceipt", function () {
       ).to.be.revertedWith("DepositReceipt: only pool");
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 7. tokenURI metadata
+  // -------------------------------------------------------------------------
+
+  describe("tokenURI", function () {
+    it("returns a valid base64-encoded JSON URI for an existing token", async function () {
+      const { pool, receipt, alice } = await loadFixture(deployFixtureWithReceipt);
+      await pool.connect(alice).deposit(randomCommitment(), { value: DEPOSIT_AMOUNT });
+
+      const uri = await receipt.tokenURI(0n);
+      expect(uri).to.match(/^data:application\/json;base64,/);
+
+      const base64Part = uri.replace("data:application/json;base64,", "");
+      const decoded = Buffer.from(base64Part, "base64").toString("utf8");
+      const parsed = JSON.parse(decoded);
+      expect(parsed).to.have.property("name");
+      expect(parsed).to.have.property("attributes");
+    });
+
+    it("tokenURI name contains the correct token ID", async function () {
+      const { pool, receipt, alice } = await loadFixture(deployFixtureWithReceipt);
+      await pool.connect(alice).deposit(randomCommitment(), { value: DEPOSIT_AMOUNT });
+      await pool.connect(alice).deposit(randomCommitment(), { value: DEPOSIT_AMOUNT });
+
+      const uri = await receipt.tokenURI(1n);
+      const base64Part = uri.replace("data:application/json;base64,", "");
+      const decoded = Buffer.from(base64Part, "base64").toString("utf8");
+      const parsed = JSON.parse(decoded);
+      expect(parsed.name).to.equal("Deposit Receipt #1");
+    });
+
+    it("tokenURI contains the correct commitment in attributes", async function () {
+      const { pool, receipt, alice } = await loadFixture(deployFixtureWithReceipt);
+      const commitment = randomCommitment();
+      await pool.connect(alice).deposit(commitment, { value: DEPOSIT_AMOUNT });
+
+      const uri = await receipt.tokenURI(0n);
+      const base64Part = uri.replace("data:application/json;base64,", "");
+      const decoded = Buffer.from(base64Part, "base64").toString("utf8");
+      const parsed = JSON.parse(decoded);
+
+      const commitmentAttr = parsed.attributes.find(
+        (a: { trait_type: string; value: string }) => a.trait_type === "Commitment"
+      );
+      expect(commitmentAttr).to.not.be.undefined;
+      // Solidity toHexString pads to full uint256 (32 bytes = 64 hex chars + "0x" prefix)
+      const expected = "0x" + commitment.toString(16).padStart(64, "0");
+      expect(commitmentAttr.value.toLowerCase()).to.equal(expected.toLowerCase());
+    });
+
+    it("tokenURI reverts for a non-existent token", async function () {
+      const { receipt } = await loadFixture(deployFixture);
+      await expect(receipt.tokenURI(999n)).to.be.revertedWithCustomError(receipt, "ERC721NonexistentToken");
+    });
+  });
 });

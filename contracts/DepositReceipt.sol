@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/utils/Base64.sol";
 
 /// @title DepositReceipt — soulbound ERC721 receipt for confidential pool deposits
 /// @notice Minted on each deposit as a non-transferable record (soulbound).
@@ -46,6 +48,27 @@ contract DepositReceipt is ERC721 {
         tokenAmount[tokenId] = _amount;
         tokenTimestamp[tokenId] = block.timestamp;
         return tokenId;
+    }
+
+    /// @notice Returns on-chain base64-encoded JSON metadata for the given token.
+    /// @param tokenId The token to query.
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        _requireOwned(tokenId);
+
+        string memory json = string(abi.encodePacked(
+            '{"name":"Deposit Receipt #', Strings.toString(tokenId),
+            '","description":"ZK Privacy Pool deposit receipt (soulbound)",',
+            '"attributes":[',
+            '{"trait_type":"Commitment","value":"', Strings.toHexString(tokenCommitment[tokenId], 32), '"},',
+            '{"trait_type":"Amount","value":"', Strings.toString(tokenAmount[tokenId]), '"},',
+            '{"trait_type":"Timestamp","value":"', Strings.toString(tokenTimestamp[tokenId]), '"}',
+            ']}'
+        ));
+
+        return string(abi.encodePacked(
+            "data:application/json;base64,",
+            Base64.encode(bytes(json))
+        ));
     }
 
     /// @notice Soulbound — disable all transfers.
