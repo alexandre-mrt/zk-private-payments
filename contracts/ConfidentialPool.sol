@@ -168,6 +168,22 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Total number of withdrawal operations executed
     uint256 public withdrawalCount;
 
+    // -------------------------------------------------------------------------
+    // Withdrawal receipts
+    // -------------------------------------------------------------------------
+
+    /// @notice Immutable record of a single withdrawal for auditability
+    struct WithdrawalRecord {
+        uint256 nullifier;
+        uint256 amount;
+        address recipient;
+        uint256 timestamp;
+        uint256 blockNumber;
+    }
+
+    /// @notice Ordered list of every withdrawal record (append-only)
+    WithdrawalRecord[] public withdrawalRecords;
+
     /// @notice Tracks whether an address has ever deposited (for unique depositor count)
     /// @dev Private — callers use `uniqueDepositorCount` for the aggregated metric.
     mapping(address => bool) private uniqueDepositors;
@@ -743,6 +759,18 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         emit Transfer(_nullifier, _outputCommitment1, _outputCommitment2);
     }
 
+    /// @notice Returns the withdrawal record at the given index
+    /// @param _index Zero-based index into the withdrawalRecords array
+    function getWithdrawalRecord(uint256 _index) external view returns (WithdrawalRecord memory) {
+        require(_index < withdrawalRecords.length, "ConfidentialPool: invalid record index");
+        return withdrawalRecords[_index];
+    }
+
+    /// @notice Returns the total number of withdrawal records stored
+    function getWithdrawalRecordCount() external view returns (uint256) {
+        return withdrawalRecords.length;
+    }
+
     /// @notice Withdraws a plaintext ETH amount from the pool to a recipient address
     /// @dev The caller provides a Groth16 proof demonstrating knowledge of an input note
     ///      whose amount covers `_amount`. Any remainder is committed as a change note
@@ -818,6 +846,14 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         nullifiers[_nullifier] = true;
         totalWithdrawn += _amount;
         withdrawalCount++;
+
+        withdrawalRecords.push(WithdrawalRecord({
+            nullifier: _nullifier,
+            amount: _amount,
+            recipient: _recipient,
+            timestamp: block.timestamp,
+            blockNumber: block.number
+        }));
 
         if (_changeCommitment != 0) {
             require(
