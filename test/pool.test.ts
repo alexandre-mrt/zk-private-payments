@@ -1812,4 +1812,85 @@ describe("ConfidentialPool", function () {
       );
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Commitment Index
+  // -------------------------------------------------------------------------
+
+  describe("Commitment Index", function () {
+    it("getCommitmentIndex returns 0 for the first deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      await pool.connect(alice).deposit(commitment, { value: ethers.parseEther("1") });
+      expect(await pool.getCommitmentIndex(commitment)).to.equal(0);
+    });
+
+    it("getCommitmentIndex reverts for an unknown commitment", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const unknown = randomCommitment();
+      await expect(pool.getCommitmentIndex(unknown)).to.be.revertedWith(
+        "commitment not found"
+      );
+    });
+
+    it("multiple deposits have sequential indices", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const c0 = randomCommitment();
+      const c1 = randomCommitment();
+      const c2 = randomCommitment();
+
+      await pool.connect(alice).deposit(c0, { value: ethers.parseEther("1") });
+      await pool.connect(alice).deposit(c1, { value: ethers.parseEther("1") });
+      await pool.connect(alice).deposit(c2, { value: ethers.parseEther("1") });
+
+      expect(await pool.getCommitmentIndex(c0)).to.equal(0);
+      expect(await pool.getCommitmentIndex(c1)).to.equal(1);
+      expect(await pool.getCommitmentIndex(c2)).to.equal(2);
+    });
+
+    it("batchDeposit indexes each commitment sequentially", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const c0 = randomCommitment();
+      const c1 = randomCommitment();
+      const amounts = [ethers.parseEther("1"), ethers.parseEther("2")];
+      const total = amounts[0] + amounts[1];
+
+      await pool.connect(alice).batchDeposit([c0, c1], amounts, { value: total });
+
+      expect(await pool.getCommitmentIndex(c0)).to.equal(0);
+      expect(await pool.getCommitmentIndex(c1)).to.equal(1);
+    });
+
+    it("transfer output commitments are indexed correctly", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const depositCommitment = randomCommitment();
+      const root = await depositAndGetRoot(pool, alice, depositCommitment);
+      const nullifier = randomCommitment();
+      const out1 = randomCommitment();
+      const out2 = randomCommitment();
+
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        nullifier,
+        out1,
+        out2
+      );
+
+      // deposit was at index 0; out1 gets index 1, out2 gets index 2
+      expect(await pool.getCommitmentIndex(out1)).to.equal(1);
+      expect(await pool.getCommitmentIndex(out2)).to.equal(2);
+    });
+
+    it("commitmentIndex mapping matches getCommitmentIndex", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const commitment = randomCommitment();
+      await pool.connect(alice).deposit(commitment, { value: ethers.parseEther("1") });
+      const fromMapping = await pool.commitmentIndex(commitment);
+      const fromGetter = await pool.getCommitmentIndex(commitment);
+      expect(fromMapping).to.equal(fromGetter);
+    });
+  });
 });

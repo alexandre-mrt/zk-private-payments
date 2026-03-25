@@ -104,6 +104,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @dev Maps commitment hash → true once inserted into the Merkle tree
     mapping(uint256 => bool) public commitments;
 
+    /// @notice Maps a commitment to its leaf index in the Merkle tree.
+    /// Allows clients to look up the tree position of any commitment without scanning events.
+    mapping(uint256 => uint32) public commitmentIndex;
+
     /// @notice Denomination allow-list for deposits
     /// @dev When non-empty, every `deposit` call must send exactly one of the listed
     ///      amounts. Maps denomination (in wei) → true if allowed.
@@ -258,6 +262,15 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Check if a commitment exists
     function isCommitted(uint256 _commitment) external view returns (bool) {
         return commitments[_commitment];
+    }
+
+    /// @notice Return the leaf index of a commitment in the Merkle tree.
+    /// @dev Reverts if the commitment is not present in the tree.
+    /// @param _commitment The commitment whose tree position is requested.
+    /// @return The zero-based leaf index assigned when the commitment was inserted.
+    function getCommitmentIndex(uint256 _commitment) external view returns (uint32) {
+        require(commitments[_commitment], "commitment not found");
+        return commitmentIndex[_commitment];
     }
 
     /// @notice Get the current deposit count
@@ -417,6 +430,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
         uint32 insertedIndex = _insert(_commitment);
         commitments[_commitment] = true;
+        commitmentIndex[_commitment] = insertedIndex;
         lastDepositBlock = block.number;
 
         totalDeposited += msg.value;
@@ -460,6 +474,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
             uint32 insertedIndex = _insert(_commitments[i]);
             commitments[_commitments[i]] = true;
+            commitmentIndex[_commitments[i]] = insertedIndex;
 
             emit Deposit(_commitments[i], insertedIndex, _amounts[i], block.timestamp);
         }
@@ -522,11 +537,13 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
         nullifiers[_nullifier] = true;
 
-        _insert(_outputCommitment1);
+        uint32 index1 = _insert(_outputCommitment1);
         commitments[_outputCommitment1] = true;
+        commitmentIndex[_outputCommitment1] = index1;
 
-        _insert(_outputCommitment2);
+        uint32 index2 = _insert(_outputCommitment2);
         commitments[_outputCommitment2] = true;
+        commitmentIndex[_outputCommitment2] = index2;
 
         totalTransfers++;
 
@@ -613,8 +630,9 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
                 _changeCommitment < FIELD_SIZE,
                 "ConfidentialPool: change commitment >= field size"
             );
-            _insert(_changeCommitment);
+            uint32 changeIndex = _insert(_changeCommitment);
             commitments[_changeCommitment] = true;
+            commitmentIndex[_changeCommitment] = changeIndex;
         }
 
         uint256 recipientAmount = _amount - _fee;
