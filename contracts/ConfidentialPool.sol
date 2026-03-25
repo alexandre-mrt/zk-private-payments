@@ -146,6 +146,12 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Tracks the number of deposits made by each address.
     mapping(address => uint256) public depositsPerAddress;
 
+    /// @notice Minimum seconds that must elapse between deposits from the same address (0 = no cooldown).
+    uint256 public depositCooldown;
+
+    /// @notice Tracks the last deposit timestamp per address for cooldown enforcement.
+    mapping(address => uint256) public lastDepositTime;
+
     // -------------------------------------------------------------------------
     // Analytics / stats
     // -------------------------------------------------------------------------
@@ -269,6 +275,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @notice Emitted when the per-address deposit limit is updated
     /// @param newMax New maximum deposits per address (0 = unlimited)
     event MaxDepositsPerAddressUpdated(uint256 newMax);
+
+    /// @notice Emitted when the deposit cooldown period is updated
+    /// @param newCooldown New cooldown duration in seconds (0 = no cooldown)
+    event DepositCooldownUpdated(uint256 newCooldown);
 
     /// @notice Deploys the pool and wires up both verifiers and the Merkle tree
     /// @param _transferVerifier  Address of the deployed ITransferVerifier contract
@@ -430,6 +440,19 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         emit MaxDepositsPerAddressUpdated(_max);
     }
 
+    /// @notice Sets the per-address deposit cooldown period.
+    /// @dev Set to 0 to disable the cooldown (default). Only callable by the owner after timelock.
+    ///      Queue with: keccak256(abi.encode("setDepositCooldown", _cooldown))
+    /// @param _cooldown Minimum seconds between deposits from the same address (0 = no cooldown).
+    function setDepositCooldown(uint256 _cooldown)
+        external
+        onlyOwner
+        timelockReady(keccak256(abi.encode("setDepositCooldown", _cooldown)))
+    {
+        depositCooldown = _cooldown;
+        emit DepositCooldownUpdated(_cooldown);
+    }
+
     /// @notice Returns how many more deposits an address can make.
     /// @dev Returns type(uint256).max when no limit is configured.
     /// @param _addr The address to query.
@@ -580,11 +603,15 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         if (maxDepositsPerAddress > 0) {
             require(depositsPerAddress[msg.sender] < maxDepositsPerAddress, "ConfidentialPool: deposit limit reached");
         }
+        if (depositCooldown > 0) {
+            require(block.timestamp >= lastDepositTime[msg.sender] + depositCooldown, "ConfidentialPool: deposit cooldown active");
+        }
 
         uint32 insertedIndex = _insert(_commitment);
         commitments[_commitment] = true;
         commitmentIndex[_commitment] = insertedIndex;
         lastDepositBlock = block.number;
+        lastDepositTime[msg.sender] = block.timestamp;
         depositsPerAddress[msg.sender]++;
 
         totalDeposited += msg.value;
@@ -615,6 +642,9 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
                 "ConfidentialPool: deposit limit reached"
             );
         }
+        if (depositCooldown > 0) {
+            require(block.timestamp >= lastDepositTime[msg.sender] + depositCooldown, "ConfidentialPool: deposit cooldown active");
+        }
 
         uint256 totalAmount = 0;
         for (uint256 i = 0; i < _amounts.length; i++) {
@@ -639,6 +669,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
             emit Deposit(_commitments[i], insertedIndex, _amounts[i], block.timestamp);
         }
         lastDepositBlock = block.number;
+        lastDepositTime[msg.sender] = block.timestamp;
         depositsPerAddress[msg.sender] += _commitments.length;
 
         totalDeposited += msg.value;
