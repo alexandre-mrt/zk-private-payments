@@ -283,6 +283,44 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         return address(this).balance;
     }
 
+    /// @notice Returns the size of the active UTXO set (total insertions - spent nullifiers)
+    /// @dev Each deposit inserts 1 commitment (nextIndex++). Each transfer spends 1 nullifier
+    ///      and inserts 2 commitments. Each withdrawal spends 1 nullifier and optionally inserts
+    ///      a change commitment. The nullifier count equals withdrawalCount + totalTransfers.
+    ///      Active notes = total insertions (nextIndex) - total nullifiers spent.
+    function getActiveNoteCount() external view returns (uint256) {
+        return uint256(nextIndex) - (withdrawalCount + totalTransfers);
+    }
+
+    /// @notice Returns comprehensive pool health metrics in one call
+    /// @return activeNotes        Current active UTXO note count
+    /// @return treeUtilization    Percentage of Merkle tree capacity used (0-100)
+    /// @return poolBalance        Current pool ETH balance in wei
+    /// @return isPaused           Whether the pool is currently paused
+    /// @return isAllowlisted      Whether the depositor allowlist is active
+    /// @return currentMaxWithdraw Per-transaction withdrawal cap in wei (0 = no limit)
+    /// @return currentMinAge      Minimum block age before withdrawal is allowed (0 = disabled)
+    function getPoolHealth() external view returns (
+        uint256 activeNotes,
+        uint256 treeUtilization,
+        uint256 poolBalance,
+        bool isPaused,
+        bool isAllowlisted,
+        uint256 currentMaxWithdraw,
+        uint256 currentMinAge
+    ) {
+        uint256 capacity = uint256(2) ** levels;
+        return (
+            uint256(nextIndex) - (withdrawalCount + totalTransfers),
+            capacity > 0 ? (uint256(nextIndex) * 100) / capacity : 0,
+            address(this).balance,
+            paused(),
+            allowlistEnabled,
+            maxWithdrawAmount,
+            minDepositAge
+        );
+    }
+
     /// @notice Returns a snapshot of all cumulative pool analytics
     /// @return _totalDeposited   Cumulative ETH deposited (wei)
     /// @return _totalWithdrawn   Cumulative ETH withdrawn (wei)

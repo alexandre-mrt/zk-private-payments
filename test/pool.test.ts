@@ -1893,4 +1893,194 @@ describe("ConfidentialPool", function () {
       expect(fromMapping).to.equal(fromGetter);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Pool Health and Anonymity Metrics
+  // -------------------------------------------------------------------------
+
+  describe("Pool Health and Anonymity Metrics", function () {
+    // getActiveNoteCount
+    it("getActiveNoteCount returns 0 before any operation", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      expect(await pool.getActiveNoteCount()).to.equal(0n);
+    });
+
+    it("getActiveNoteCount increments by 1 after a deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      expect(await pool.getActiveNoteCount()).to.equal(1n);
+    });
+
+    it("getActiveNoteCount increments by 1 after a transfer (spends 1, creates 2)", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      // 1 deposit → nextIndex=1, active=1
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("1"));
+      // 1 transfer → nextIndex=3, withdrawalCount=0, totalTransfers=1 → active = 3 - 0 - 1 = 2
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        randomCommitment(),
+        randomCommitment()
+      );
+      expect(await pool.getActiveNoteCount()).to.equal(2n);
+    });
+
+    it("getActiveNoteCount decrements by 1 after a withdrawal with no change", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      // 1 deposit → nextIndex=1, active=1
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("2"));
+      // withdraw 1 ETH with no change → nextIndex=1, withdrawalCount=1, totalTransfers=0 → active = 1 - 1 - 0 = 0
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        ethers.parseEther("1"),
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+      expect(await pool.getActiveNoteCount()).to.equal(0n);
+    });
+
+    it("getActiveNoteCount stays same after withdrawal with change note", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      // 1 deposit → nextIndex=1, active=1
+      const root = await depositAndGetRoot(pool, alice, randomCommitment(), ethers.parseEther("2"));
+      const change = randomCommitment();
+      // withdraw with change note → nextIndex=2, withdrawalCount=1, totalTransfers=0 → active = 2 - 1 - 0 = 1
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root,
+        randomCommitment(),
+        ethers.parseEther("1"),
+        alice.address,
+        change,
+        ethers.ZeroAddress,
+        0n
+      );
+      expect(await pool.getActiveNoteCount()).to.equal(1n);
+    });
+
+    it("getActiveNoteCount is consistent across deposit + transfer + withdrawal sequence", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+
+      // After 2 deposits: nextIndex=2, active=2
+      const c1 = randomCommitment();
+      const c2 = randomCommitment();
+      await pool.connect(alice).deposit(c1, { value: ethers.parseEther("1") });
+      await pool.connect(alice).deposit(c2, { value: ethers.parseEther("1") });
+      expect(await pool.getActiveNoteCount()).to.equal(2n);
+
+      // After transfer: nextIndex=4, totalTransfers=1 → active = 4 - 0 - 1 = 3
+      const root1 = await pool.getLastRoot();
+      await pool.transfer(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root1,
+        randomCommitment(),
+        randomCommitment(),
+        randomCommitment()
+      );
+      expect(await pool.getActiveNoteCount()).to.equal(3n);
+
+      // After withdrawal (no change): nextIndex=4, withdrawalCount=1, totalTransfers=1 → active = 4 - 1 - 1 = 2
+      const root2 = await pool.getLastRoot();
+      await pool.withdraw(
+        ZERO_PROOF.pA,
+        ZERO_PROOF.pB,
+        ZERO_PROOF.pC,
+        root2,
+        randomCommitment(),
+        ethers.parseEther("1"),
+        alice.address,
+        0n,
+        ethers.ZeroAddress,
+        0n
+      );
+      expect(await pool.getActiveNoteCount()).to.equal(2n);
+    });
+
+    // getPoolHealth
+    it("getPoolHealth returns all zeroes / defaults on fresh pool", async function () {
+      const { pool } = await loadFixture(deployPoolFixture);
+      const health = await pool.getPoolHealth();
+      // activeNotes
+      expect(health[0]).to.equal(0n);
+      // treeUtilization
+      expect(health[1]).to.equal(0n);
+      // poolBalance
+      expect(health[2]).to.equal(0n);
+      // isPaused
+      expect(health[3]).to.be.false;
+      // isAllowlisted
+      expect(health[4]).to.be.false;
+      // currentMaxWithdraw
+      expect(health[5]).to.equal(0n);
+      // currentMinAge
+      expect(health[6]).to.equal(0n);
+    });
+
+    it("getPoolHealth reflects pool balance after deposit", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      const value = ethers.parseEther("1.5");
+      await pool.connect(alice).deposit(randomCommitment(), { value });
+      const health = await pool.getPoolHealth();
+      expect(health[2]).to.equal(value);
+    });
+
+    it("getPoolHealth isPaused is true when pool is paused", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).pause();
+      const health = await pool.getPoolHealth();
+      expect(health[3]).to.be.true;
+    });
+
+    it("getPoolHealth isAllowlisted reflects allowlist state", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      expect((await pool.getPoolHealth())[4]).to.be.false;
+      await pool.connect(owner).setAllowlistEnabled(true);
+      expect((await pool.getPoolHealth())[4]).to.be.true;
+    });
+
+    it("getPoolHealth currentMaxWithdraw reflects setMaxWithdrawAmount", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      const cap = ethers.parseEther("5");
+      await pool.connect(owner).setMaxWithdrawAmount(cap);
+      const health = await pool.getPoolHealth();
+      expect(health[5]).to.equal(cap);
+    });
+
+    it("getPoolHealth currentMinAge reflects setMinDepositAge", async function () {
+      const { pool, owner } = await loadFixture(deployPoolFixture);
+      await pool.connect(owner).setMinDepositAge(100n);
+      const health = await pool.getPoolHealth();
+      expect(health[6]).to.equal(100n);
+    });
+
+    it("getPoolHealth treeUtilization is non-zero after deposits", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      // Tree has 5 levels → capacity = 32. After 1 deposit: utilization = (1 * 100) / 32 = 3
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      const health = await pool.getPoolHealth();
+      // nextIndex=1, capacity=32 → utilization = floor(100/32) = 3
+      expect(health[1]).to.equal(3n);
+    });
+
+    it("getPoolHealth activeNotes matches getActiveNoteCount", async function () {
+      const { pool, alice } = await loadFixture(deployPoolFixture);
+      await pool.connect(alice).deposit(randomCommitment(), { value: ethers.parseEther("1") });
+      const health = await pool.getPoolHealth();
+      const activeCount = await pool.getActiveNoteCount();
+      expect(health[0]).to.equal(activeCount);
+    });
+  });
 });

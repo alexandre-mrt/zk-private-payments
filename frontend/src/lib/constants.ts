@@ -122,6 +122,28 @@ export const POOL_ABI = [
   },
   {
     type: "function",
+    name: "getActiveNoteCount",
+    inputs: [],
+    outputs: [{ name: "activeNotes", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getPoolHealth",
+    inputs: [],
+    outputs: [
+      { name: "activeNotes", type: "uint256" },
+      { name: "treeUtilization", type: "uint256" },
+      { name: "poolBalance", type: "uint256" },
+      { name: "isPaused", type: "bool" },
+      { name: "isAllowlisted", type: "bool" },
+      { name: "currentMaxWithdraw", type: "uint256" },
+      { name: "currentMinAge", type: "uint256" },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "getPoolStats",
     inputs: [],
     outputs: [

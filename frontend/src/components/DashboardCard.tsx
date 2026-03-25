@@ -80,6 +80,20 @@ export function DashboardCard() {
     query: { enabled: isDeployed },
   });
 
+  const { data: activeNoteCount, isLoading: activeNoteCountLoading } = useReadContract({
+    address: POOL_ADDRESS_ZERO,
+    abi: POOL_ABI,
+    functionName: "getActiveNoteCount",
+    query: { enabled: isDeployed },
+  });
+
+  const { data: poolHealth, isLoading: poolHealthLoading } = useReadContract({
+    address: POOL_ADDRESS_ZERO,
+    abi: POOL_ABI,
+    functionName: "getPoolHealth",
+    query: { enabled: isDeployed },
+  });
+
   const localNotes = loadNotes();
   const totalLocalBalance = localNotes.reduce((sum, n) => sum + n.amount, 0n);
 
@@ -156,6 +170,30 @@ export function DashboardCard() {
                 : depositCountLoading
                   ? "..."
                   : (depositCount?.toString() ?? "0")
+            }
+          />
+          <StatTile
+            label="Active Notes"
+            value={
+              !isDeployed
+                ? "—"
+                : activeNoteCountLoading
+                  ? "..."
+                  : activeNoteCount !== undefined
+                    ? (activeNoteCount as bigint).toString()
+                    : "—"
+            }
+          />
+          <StatTile
+            label="Tree Usage"
+            value={
+              !isDeployed
+                ? "—"
+                : poolHealthLoading
+                  ? "..."
+                  : poolHealth !== undefined
+                    ? `${(poolHealth as readonly [bigint, bigint, bigint, boolean, boolean, bigint, bigint])[1].toString()}%`
+                    : "—"
             }
           />
           <StatTile
