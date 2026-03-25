@@ -139,6 +139,13 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @dev Maps address → true if allowed to deposit
     mapping(address => bool) public allowlisted;
 
+    /// @notice Maximum number of deposits allowed per address (0 = unlimited).
+    /// @dev Prevents a single address from dominating the anonymity set.
+    uint256 public maxDepositsPerAddress;
+
+    /// @notice Tracks the number of deposits made by each address.
+    mapping(address => uint256) public depositsPerAddress;
+
     // -------------------------------------------------------------------------
     // Analytics / stats
     // -------------------------------------------------------------------------
@@ -229,6 +236,10 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
     /// @param account The account whose status changed
     /// @param allowed Whether the account is now allowed
     event AllowlistUpdated(address indexed account, bool allowed);
+
+    /// @notice Emitted when the per-address deposit limit is updated
+    /// @param newMax New maximum deposits per address (0 = unlimited)
+    event MaxDepositsPerAddressUpdated(uint256 newMax);
 
     /// @notice Deploys the pool and wires up both verifiers and the Merkle tree
     /// @param _transferVerifier  Address of the deployed ITransferVerifier contract
@@ -349,6 +360,24 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         );
     }
 
+    /// @notice Sets the maximum number of deposits allowed per address.
+    /// @dev Set to 0 to remove the limit (default). Only callable by the owner.
+    /// @param _max Maximum deposits per address (0 = unlimited).
+    function setMaxDepositsPerAddress(uint256 _max) external onlyOwner {
+        maxDepositsPerAddress = _max;
+        emit MaxDepositsPerAddressUpdated(_max);
+    }
+
+    /// @notice Returns how many more deposits an address can make.
+    /// @dev Returns type(uint256).max when no limit is configured.
+    /// @param _addr The address to query.
+    /// @return Remaining deposits allowed (type(uint256).max if unlimited).
+    function getRemainingDeposits(address _addr) external view returns (uint256) {
+        if (maxDepositsPerAddress == 0) return type(uint256).max;
+        uint256 used = depositsPerAddress[_addr];
+        return used >= maxDepositsPerAddress ? 0 : maxDepositsPerAddress - used;
+    }
+
     /// @notice Pauses all deposit, transfer, and withdrawal operations
     /// @dev Only callable by the owner. Use in emergencies to halt the pool.
     function pause() external onlyOwner { _pause(); }
@@ -465,11 +494,15 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         require(_commitment != 0, "ConfidentialPool: zero commitment");
         require(_commitment < FIELD_SIZE, "ConfidentialPool: commitment >= field size");
         require(!commitments[_commitment], "ConfidentialPool: duplicate commitment");
+        if (maxDepositsPerAddress > 0) {
+            require(depositsPerAddress[msg.sender] < maxDepositsPerAddress, "ConfidentialPool: deposit limit reached");
+        }
 
         uint32 insertedIndex = _insert(_commitment);
         commitments[_commitment] = true;
         commitmentIndex[_commitment] = insertedIndex;
         lastDepositBlock = block.number;
+        depositsPerAddress[msg.sender]++;
 
         totalDeposited += msg.value;
         if (!uniqueDepositors[msg.sender]) {
@@ -493,6 +526,12 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         require(_commitments.length == _amounts.length, "ConfidentialPool: arrays length mismatch");
         require(_commitments.length > 0, "ConfidentialPool: empty batch");
         require(_commitments.length <= 10, "ConfidentialPool: batch too large");
+        if (maxDepositsPerAddress > 0) {
+            require(
+                depositsPerAddress[msg.sender] + _commitments.length <= maxDepositsPerAddress,
+                "ConfidentialPool: deposit limit reached"
+            );
+        }
 
         uint256 totalAmount = 0;
         for (uint256 i = 0; i < _amounts.length; i++) {
@@ -517,6 +556,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
             emit Deposit(_commitments[i], insertedIndex, _amounts[i], block.timestamp);
         }
         lastDepositBlock = block.number;
+        depositsPerAddress[msg.sender] += _commitments.length;
 
         totalDeposited += msg.value;
         if (!uniqueDepositors[msg.sender]) {

@@ -281,10 +281,12 @@ describe("Gas Benchmarks", function () {
 
       for (const g of gasUsage) {
         const diff = g > avg ? g - avg : avg - g;
-        // diff / avg < 20%  →  diff * 100 / avg < 20
+        // diff / avg < 30%  →  diff * 100 / avg < 30
+        // The first deposit to a new address writes depositsPerAddress cold
+        // (~20k extra gas), so a tighter bound would create a flaky benchmark.
         expect(diff * 100n / avg).to.be.lessThan(
-          20n,
-          `deposit gas ${g} deviates more than 20% from avg ${avg}`
+          30n,
+          `deposit gas ${g} deviates more than 30% from avg ${avg}`
         );
       }
     });
