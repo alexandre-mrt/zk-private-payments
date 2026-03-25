@@ -9,6 +9,7 @@ import { registerWithdraw } from "./withdraw.js";
 import { registerBalance } from "./balance.js";
 import { registerWatch } from "./watch.js";
 import { registerEvents } from "./events.js";
+import { registerBackup } from "./backup.js";
 
 const program = new Command();
 
@@ -27,6 +28,7 @@ registerWithdraw(program);
 registerBalance(program);
 registerWatch(program);
 registerEvents(program);
+registerBackup(program);
 
 program.parseAsync(process.argv).catch((err: Error) => {
   console.error("Fatal error:", err.message);
