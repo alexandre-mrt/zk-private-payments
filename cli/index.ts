@@ -7,6 +7,7 @@ import { registerScan } from "./scan.js";
 import { registerTransfer } from "./transfer.js";
 import { registerWithdraw } from "./withdraw.js";
 import { registerBalance } from "./balance.js";
+import { registerWatch } from "./watch.js";
 
 const program = new Command();
 
@@ -23,6 +24,7 @@ registerScan(program);
 registerTransfer(program);
 registerWithdraw(program);
 registerBalance(program);
+registerWatch(program);
 
 program.parseAsync(process.argv).catch((err: Error) => {
   console.error("Fatal error:", err.message);
