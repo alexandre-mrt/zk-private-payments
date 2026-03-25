@@ -993,4 +993,16 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
 
         emit Withdrawal(_nullifier, _amount, _recipient, _changeCommitment, _relayer, _fee);
     }
+
+    /// @notice Compute a 2-input Poseidon hash on-chain.
+    /// @dev Convenience wrapper around hashLeftRight for clients to verify any 2-input Poseidon
+    ///      computation without deploying additional infrastructure.
+    ///      Note: the full 3-input note commitment Poseidon(amount, blinding, ownerPubKeyX)
+    ///      cannot be verified on-chain with this helper — that must be checked off-chain.
+    /// @param _a First field element input (must be < FIELD_SIZE).
+    /// @param _b Second field element input (must be < FIELD_SIZE).
+    /// @return The Poseidon hash of (_a, _b).
+    function verifyHash(uint256 _a, uint256 _b) external view returns (uint256) {
+        return hashLeftRight(_a, _b);
+    }
 }
