@@ -1,10 +1,9 @@
 import { buildPoseidon } from "circomlibjs";
 import type { PoseidonFn } from "circomlibjs";
 
-// Incremental Merkle tree matching the on-chain MerkleTree.sol (Poseidon-based)
-export const ZERO_VALUE = BigInt(
-  "21663839004416932945382355908790599225266501822907911457504978515578255421292"
-);
+// Must match MerkleTree.sol constructor: zeros[0] = 0 (empty leaf)
+// Previously was Poseidon(0,0) which caused proof mismatch with on-chain root
+export const ZERO_VALUE = 0n;
 
 export class MerkleTree {
   private readonly levels: number;

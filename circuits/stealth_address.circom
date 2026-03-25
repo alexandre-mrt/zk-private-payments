@@ -56,9 +56,12 @@ template StealthAddressVerifier() {
     rV.p[1] <== viewingPubKeyY;
     // S = (rV.out[0], rV.out[1])
 
-    // 4. Compute stealth key scalar = Poseidon(S.x)
-    component stealthScalarHash = Poseidon(1);
-    stealthScalarHash.inputs[0] <== rV.out[0];
+    // 4. Compute stealth key scalar = Poseidon(S.x, S.y)
+    // Uses full shared secret point entropy (matches Tornado Cash Nova pattern)
+    // Previously used Poseidon(S.x) only — less robust
+    component stealthScalarHash = Poseidon(2);
+    stealthScalarHash.inputs[0] <== rV.out[0]; // S.x
+    stealthScalarHash.inputs[1] <== rV.out[1]; // S.y
 
     // 5. Decompose stealth scalar into bits
     component sBits = Num2Bits(253);

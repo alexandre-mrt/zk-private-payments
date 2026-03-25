@@ -12,9 +12,9 @@ include "./range_proof.circom";
 //   2. Prover knows the spending key for the input note
 //   3. Nullifier is correctly derived
 //   4. amountIn == amount (withdrawn) + changeAmount (balance preservation)
-//   5. All amounts are in valid range [0, 2^64)
+//   5. All amounts are in valid range [0, 2^96)
 //   6. Change commitment is correctly computed
-//   7. Recipient is bound to the proof (prevents front-running)
+//   7. Recipient and relayer are bound to the proof (prevents front-running)
 template Withdraw(levels) {
     // Public inputs
     signal input root;
@@ -22,6 +22,8 @@ template Withdraw(levels) {
     signal input amount;            // Plaintext withdrawal amount
     signal input recipient;         // ETH address receiving funds
     signal input changeCommitment;  // Change note commitment (if any)
+    signal input relayer;           // Relayer address (bound to proof)
+    signal input fee;               // Relayer fee (bound to proof)
 
     // Private inputs — input note
     signal input amountIn;
@@ -60,14 +62,15 @@ template Withdraw(levels) {
     // 4. Balance: amountIn == amount (withdrawn) + changeAmount
     amountIn === amount + changeAmount;
 
-    // 5. Range proofs — all amounts in [0, 2^64)
-    component rangeIn = RangeProof(64);
+    // 5. Range proofs — all amounts in [0, 2^96)
+    // 96 bits covers ~79 billion ETH (10,000x current supply)
+    component rangeIn = RangeProof(96);
     rangeIn.value <== amountIn;
 
-    component rangeAmount = RangeProof(64);
+    component rangeAmount = RangeProof(96);
     rangeAmount.value <== amount;
 
-    component rangeChange = RangeProof(64);
+    component rangeChange = RangeProof(96);
     rangeChange.value <== changeAmount;
 
     // 6. Verify change commitment
@@ -77,9 +80,15 @@ template Withdraw(levels) {
     changeCommComp.ownerPubKeyX <== changeOwnerPubKeyX;
     changeCommitment === changeCommComp.commitment;
 
-    // 7. Bind recipient to proof to prevent front-running
-    signal recipientSquare;
-    recipientSquare <== recipient * recipient;
+    // 7. Bind recipient, relayer, and fee to proof (prevent front-running)
+    // Recipient must be a valid Ethereum address (< 2^160)
+    component recipientRange = RangeProof(160);
+    recipientRange.value <== recipient;
+
+    signal relayerSquare;
+    relayerSquare <== relayer * relayer;
+    signal feeSquare;
+    feeSquare <== fee * fee;
 }
 
-component main {public [root, nullifier, amount, recipient, changeCommitment]} = Withdraw(20);
+component main {public [root, nullifier, amount, recipient, changeCommitment, relayer, fee]} = Withdraw(20);

@@ -63,14 +63,16 @@ template ConfidentialTransfer(levels) {
     // 4. Balance preservation: amountIn == amountOut1 + amountOut2
     amountIn === amountOut1 + amountOut2;
 
-    // 5. Range proofs — all amounts in [0, 2^64)
-    component rangeIn = RangeProof(64);
+    // 5. Range proofs — all amounts in [0, 2^96)
+    // 96 bits covers ~79 billion ETH (10,000x current supply)
+    // 64 bits was insufficient (only ~18.4M ETH max per note)
+    component rangeIn = RangeProof(96);
     rangeIn.value <== amountIn;
 
-    component rangeOut1 = RangeProof(64);
+    component rangeOut1 = RangeProof(96);
     rangeOut1.value <== amountOut1;
 
-    component rangeOut2 = RangeProof(64);
+    component rangeOut2 = RangeProof(96);
     rangeOut2.value <== amountOut2;
 
     // 6. Compute output commitments and verify

@@ -72,8 +72,8 @@ Examples:
           // Full stealth address derivation:
           // 1. sharedPoint = viewingKey * ephemeralPubKey  (raw ECDH point, not hashed)
           const sharedPoint = await deriveSharedSecret(keys.viewingKey, ephPubKeyX, ephPubKeyY);
-          // 2. stealthScalar = Poseidon(sharedPoint.x)
-          const stealthScalar = pF.toObject(poseidon([sharedPoint.x]));
+          // 2. stealthScalar = Poseidon(sharedPoint.x, sharedPoint.y) — 2 inputs
+          const stealthScalar = pF.toObject(poseidon([sharedPoint.x, sharedPoint.y]));
           // 3. stealthPoint = stealthScalar * G + spendingPubKey
           const scalarG = babyjub.mulPointEscalar(babyjub.Base8, stealthScalar);
           const spendPoint: [unknown, unknown] = [

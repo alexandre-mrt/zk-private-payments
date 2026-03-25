@@ -151,8 +151,9 @@ export async function deriveStealthKeypair(
   const sharedPointX: bigint = F.toObject(sharedPoint[0]);
   const sharedPointY: bigint = F.toObject(sharedPoint[1]);
 
-  // stealthScalar = Poseidon(sharedPoint.x)  — 1 input, matches circuit step 4
-  const sharedX = poseidon.F.toObject(poseidon([sharedPointX]));
+  // stealthScalar = Poseidon(sharedPoint.x, sharedPoint.y) — 2 inputs, matches circuit
+  // Uses full shared secret point entropy (Tornado Cash Nova pattern)
+  const sharedX = poseidon.F.toObject(poseidon([sharedPointX, sharedPointY]));
 
   // stealthPubKey = sharedX * G + recipientSpendingPubKey  — matches circuit step 7
   const sharedBase = babyjub.mulPointEscalar(babyjub.Base8, sharedX);

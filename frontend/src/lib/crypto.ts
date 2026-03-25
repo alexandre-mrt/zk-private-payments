@@ -299,9 +299,10 @@ export async function deriveStealthCommitment(
   ];
   const sharedSecret = babyjub.mulPointEscalar(ephemeralPub, vkBytes);
   const sharedX = babyjub.F.toObject(sharedSecret[0]);
+  const sharedY = babyjub.F.toObject(sharedSecret[1]);
 
-  // 2. stealthScalar = Poseidon(sharedSecret.x)  — 1 input, matches circuit stealth_address.circom:60
-  const stealthScalarRaw = poseidon([sharedX]);
+  // 2. stealthScalar = Poseidon(sharedSecret.x, sharedSecret.y) — 2 inputs, matches circuit
+  const stealthScalarRaw = poseidon([sharedX, sharedY]);
   const stealthScalar = poseidon.F.toObject(stealthScalarRaw);
 
   // 3. stealthPoint = stealthScalar * G + spendingPub
