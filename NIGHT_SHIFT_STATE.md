@@ -1,10 +1,10 @@
 ## Night Shift Final State
 
 ### Stats
-- ZK Mixer: 4,833 tests, 139 commits
-- ZK Private Payments: 7,172 tests, 173 commits
+- ZK Mixer: 6,033 tests, 140 commits
+- ZK Private Payments: 8,972 tests, 175 commits
 - Puppeteer E2E: 5 visual tests
-- **Combined: 12,010 tests, 312 commits**
+- **Combined: 15,010 tests, 315 commits**
 
 ### PRs
 - https://github.com/alexandre-mrt/zk-mixer/pull/1
