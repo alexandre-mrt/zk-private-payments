@@ -291,7 +291,7 @@ export async function deriveStealthCommitment(
   const babyjub = await getBabyjub();
   const poseidon = await getPoseidon();
 
-  // shared_secret = viewingKey * ephemeralPub
+  // 1. sharedSecret = viewingKey * ephemeralPub  (ECDH)
   const vkBytes = babyjub.F.e(viewingKey);
   const ephemeralPub: [Uint8Array, Uint8Array] = [
     babyjub.F.e(ephemeralX),
@@ -300,7 +300,19 @@ export async function deriveStealthCommitment(
   const sharedSecret = babyjub.mulPointEscalar(ephemeralPub, vkBytes);
   const sharedX = babyjub.F.toObject(sharedSecret[0]);
 
-  // stealth_address = Poseidon(sharedX, spendingPubX, spendingPubY)
-  const raw = poseidon([sharedX, spendingPubX, spendingPubY]);
-  return poseidon.F.toObject(raw);
+  // 2. stealthScalar = Poseidon(sharedSecret.x)  — 1 input, matches circuit stealth_address.circom:60
+  const stealthScalarRaw = poseidon([sharedX]);
+  const stealthScalar = poseidon.F.toObject(stealthScalarRaw);
+
+  // 3. stealthPoint = stealthScalar * G + spendingPub
+  const scalarBytes = babyjub.F.e(stealthScalar);
+  const scalarG = babyjub.mulPointEscalar(babyjub.Base8, scalarBytes);
+  const spendingPub: [Uint8Array, Uint8Array] = [
+    babyjub.F.e(spendingPubX),
+    babyjub.F.e(spendingPubY),
+  ];
+  const stealthPoint = babyjub.addPoint(scalarG, spendingPub);
+
+  // 4. Return stealthPoint.x for comparison against announced stealthPubKeyX
+  return babyjub.F.toObject(stealthPoint[0]);
 }

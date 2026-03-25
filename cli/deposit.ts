@@ -17,17 +17,19 @@ export function registerDeposit(program: Command): void {
     .description("Deposit ETH into the pool and create a private note")
     .requiredOption("--amount <ETH>", "Amount in ETH to deposit")
     .option(
-      "--to <stealthPubKeyX>",
-      "Stealth spending pubkey X of recipient (announce stealth payment)"
+      "--to <viewingPubKeyX>",
+      "Recipient viewing pubkey X (for ECDH shared secret — announce stealth payment)"
     )
-    .option("--to-y <stealthPubKeyY>", "Stealth spending pubkey Y of recipient")
+    .option("--to-y <viewingPubKeyY>", "Recipient viewing pubkey Y")
+    .option("--to-spend-x <spendingPubKeyX>", "Recipient spending pubkey X")
+    .option("--to-spend-y <spendingPubKeyY>", "Recipient spending pubkey Y")
     .option("--rpc <url>", "RPC URL")
     .addHelpText(
       "after",
       `
 Examples:
   $ zk-pay deposit --amount 1.0
-  $ zk-pay deposit --amount 0.5 --to <recipientPubKeyX> --to-y <recipientPubKeyY>
+  $ zk-pay deposit --amount 0.5 --to <viewingPubKeyX> --to-y <viewingPubKeyY> --to-spend-x <spendingPubKeyX> --to-spend-y <spendingPubKeyY>
   $ zk-pay deposit --amount 1.0 --rpc http://localhost:8545
 `
     )
@@ -36,6 +38,8 @@ Examples:
         amount: string;
         to?: string;
         toY?: string;
+        toSpendX?: string;
+        toSpendY?: string;
         rpc?: string;
       }) => {
         const rpcUrl = opts.rpc ?? process.env["RPC_URL"] ?? "http://127.0.0.1:8545";
@@ -48,8 +52,8 @@ Examples:
           }
 
           // Validate stealth payment args
-          if (opts.to && !opts.toY) {
-            log.error("--to-y is required when announcing a stealth payment (provide recipient viewing pubkey Y).");
+          if (opts.to && (!opts.toY || !opts.toSpendX || !opts.toSpendY)) {
+            log.error("--to-y, --to-spend-x, and --to-spend-y are all required when announcing a stealth payment.");
             process.exit(1);
           }
 
@@ -97,12 +101,19 @@ Examples:
           log.success(`Note saved to notes/${note.commitment}.json`);
 
           // Optional stealth announcement with encrypted note data
-          if (opts.to && opts.toY) {
-            const recipientPubKeyX = BigInt(opts.to);
-            const recipientPubKeyY = BigInt(opts.toY);
+          if (opts.to && opts.toY && opts.toSpendX && opts.toSpendY) {
+            const recipientViewingPubKeyX = BigInt(opts.to);
+            const recipientViewingPubKeyY = BigInt(opts.toY);
+            const recipientSpendingPubKeyX = BigInt(opts.toSpendX);
+            const recipientSpendingPubKeyY = BigInt(opts.toSpendY);
 
             log.info("Announcing stealth payment...");
-            const stealth = await deriveStealthKeypair(recipientPubKeyX, recipientPubKeyY);
+            const stealth = await deriveStealthKeypair(
+              recipientViewingPubKeyX,
+              recipientViewingPubKeyY,
+              recipientSpendingPubKeyX,
+              recipientSpendingPubKeyY
+            );
 
             // Encrypt note data so the receiver can reconstruct the note from the event
             const { encryptedAmount, encryptedBlinding } = await encryptNoteData(

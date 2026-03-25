@@ -110,9 +110,16 @@ export async function deriveSharedSecret(
 // Derive ephemeral keypair and stealth pubkey for an announcement.
 // Also returns the raw ECDH shared point (before Poseidon hashing) so
 // the caller can pass it to encryptNoteData without recomputing.
+//
+// Protocol (matches stealth_address.circom):
+//   sharedPoint   = ephemeralPrivKey * recipientViewingPubKey  (ECDH)
+//   stealthScalar = Poseidon(sharedPoint.x)                    (1-input hash)
+//   stealthPubKey = stealthScalar * G + recipientSpendingPubKey
 export async function deriveStealthKeypair(
   recipientViewingPubKeyX: bigint,
-  recipientViewingPubKeyY: bigint
+  recipientViewingPubKeyY: bigint,
+  recipientSpendingPubKeyX: bigint,
+  recipientSpendingPubKeyY: bigint
 ): Promise<{
   ephemeralPrivKey: bigint;
   ephemeralPubKeyX: bigint;
@@ -135,19 +142,25 @@ export async function deriveStealthKeypair(
   const ephemeralPubKeyX = F.toObject(ephPubPoint[0]);
   const ephemeralPubKeyY = F.toObject(ephPubPoint[1]);
 
-  // Shared secret = ephemeralPrivKey * recipientViewingPubKey
-  const recipientPoint: [unknown, unknown] = [
+  // Shared secret = ephemeralPrivKey * recipientViewingPubKey  (ECDH with viewing key)
+  const viewingPoint: [unknown, unknown] = [
     F.e(recipientViewingPubKeyX),
     F.e(recipientViewingPubKeyY),
   ];
-  const sharedPoint = babyjub.mulPointEscalar(recipientPoint, ephemeralPrivKey);
+  const sharedPoint = babyjub.mulPointEscalar(viewingPoint, ephemeralPrivKey);
   const sharedPointX: bigint = F.toObject(sharedPoint[0]);
   const sharedPointY: bigint = F.toObject(sharedPoint[1]);
+
+  // stealthScalar = Poseidon(sharedPoint.x)  — 1 input, matches circuit step 4
   const sharedX = poseidon.F.toObject(poseidon([sharedPointX]));
 
-  // Stealth pubkey = sharedX * G + recipientViewingPubKey
+  // stealthPubKey = sharedX * G + recipientSpendingPubKey  — matches circuit step 7
   const sharedBase = babyjub.mulPointEscalar(babyjub.Base8, sharedX);
-  const stealthPoint = babyjub.addPoint(sharedBase, recipientPoint);
+  const spendingPoint: [unknown, unknown] = [
+    F.e(recipientSpendingPubKeyX),
+    F.e(recipientSpendingPubKeyY),
+  ];
+  const stealthPoint = babyjub.addPoint(sharedBase, spendingPoint);
   const stealthPubKeyX = F.toObject(stealthPoint[0]);
   const stealthPubKeyY = F.toObject(stealthPoint[1]);
 
