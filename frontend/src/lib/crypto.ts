@@ -168,7 +168,7 @@ export async function hashLeftRight(left: bigint, right: bigint): Promise<bigint
   return poseidon.F.toObject(raw);
 }
 
-function serializeNote(
+export function serializeNote(
   amount: bigint,
   blinding: bigint,
   spendingKey: bigint,

@@ -512,6 +512,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint256 _outputCommitment1,
         uint256 _outputCommitment2
     ) external nonReentrant whenNotPaused onlyDeployedChain {
+        require(_nullifier < FIELD_SIZE, "ConfidentialPool: nullifier >= field size");
         require(!nullifiers[_nullifier], "ConfidentialPool: nullifier already spent");
         require(isKnownRoot(_root), "ConfidentialPool: unknown root");
         require(
@@ -592,6 +593,7 @@ contract ConfidentialPool is MerkleTree, ReentrancyGuard, Pausable, Ownable {
         uint256 _fee
     ) external nonReentrant whenNotPaused onlyDeployedChain {
         require(_fee <= _amount, "ConfidentialPool: fee exceeds amount");
+        require(_nullifier < FIELD_SIZE, "ConfidentialPool: nullifier >= field size");
         require(!nullifiers[_nullifier], "ConfidentialPool: nullifier already spent");
         require(isKnownRoot(_root), "ConfidentialPool: unknown root");
         require(_recipient != address(0), "ConfidentialPool: zero recipient");

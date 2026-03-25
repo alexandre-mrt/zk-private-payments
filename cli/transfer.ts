@@ -3,8 +3,7 @@ import path from "path";
 import { ethers } from "ethers";
 import { groth16 } from "snarkjs";
 import { createNote, computeNullifier } from "./crypto.js";
-import { MerkleTree } from "./merkle-tree.js";
-import { MERKLE_TREE_HEIGHT, CLI_DIRS } from "./config.js";
+import { CLI_DIRS } from "./config.js";
 import {
   getProvider,
   getWallet,
@@ -14,6 +13,7 @@ import {
   saveNote,
   markNoteSpent,
   formatProofForSolidity,
+  buildFullMerkleTree,
   log,
 } from "./utils.js";
 
@@ -76,25 +76,10 @@ Notes:
           const amountOut2 = inputNote.amount - amountOut1Wei;
           const recipientPubKeyX = BigInt(opts.to);
 
-          // Build Merkle tree from on-chain Deposit events
+          // Build Merkle tree from all on-chain commitment events
           log.info("Building Merkle tree from chain...");
           const pool = getConfidentialPool(provider);
-          const depositFilter = pool.filters["Deposit"]();
-          const depositEvents = await pool.queryFilter(depositFilter, 0);
-
-          const tree = await MerkleTree.create(MERKLE_TREE_HEIGHT);
-          const leaves: bigint[] = depositEvents
-            .sort((a, b) => {
-              const la = pool.interface.parseLog(a);
-              const lb = pool.interface.parseLog(b);
-              return Number(la?.args["leafIndex"] ?? 0) - Number(lb?.args["leafIndex"] ?? 0);
-            })
-            .map((e) => {
-              const parsed = pool.interface.parseLog(e);
-              return BigInt(parsed?.args["commitment"]?.toString() ?? "0");
-            });
-
-          tree.insertAll(leaves);
+          const tree = await buildFullMerkleTree(pool);
           const root = tree.root;
 
           // Find our leaf index

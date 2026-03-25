@@ -6,8 +6,10 @@ import {
   CONFIDENTIAL_POOL_ABI,
   STEALTH_REGISTRY_ABI,
   CLI_DIRS,
+  MERKLE_TREE_HEIGHT,
   loadDeployment,
 } from "./config.js";
+import { MerkleTree } from "./merkle-tree.js";
 import type { Note, FullKeypair } from "./crypto.js";
 
 // ── Console output helpers ────────────────────────────────────────────────────
@@ -220,4 +222,72 @@ export function bigintToHex(n: bigint): string {
 
 export function hexToBigint(hex: string): bigint {
   return BigInt(hex.startsWith("0x") ? hex : `0x${hex}`);
+}
+
+// ── Merkle tree helpers ────────────────────────────────────────────────────────
+
+type CommitmentInsertion = { commitment: bigint; block: number; logIndex: number };
+
+/**
+ * Build a full Merkle tree from on-chain events.
+ * Fetches Deposit, Transfer and Withdrawal events, sorts by block + logIndex,
+ * and inserts all commitments in the same order as the contract.
+ */
+export async function buildFullMerkleTree(
+  pool: ethers.Contract,
+  treeHeight: number = MERKLE_TREE_HEIGHT,
+): Promise<MerkleTree> {
+  const tree = await MerkleTree.create(treeHeight);
+
+  const [deposits, transfers, withdrawals] = await Promise.all([
+    pool.queryFilter(pool.filters["Deposit"]()),
+    pool.queryFilter(pool.filters["Transfer"]()),
+    pool.queryFilter(pool.filters["Withdrawal"]()),
+  ]);
+
+  const insertions: CommitmentInsertion[] = [];
+
+  for (const e of deposits) {
+    const parsed = pool.interface.parseLog(e);
+    if (parsed) {
+      insertions.push({
+        commitment: BigInt(parsed.args["commitment"].toString()),
+        block: e.blockNumber,
+        logIndex: e.index,
+      });
+    }
+  }
+
+  for (const e of transfers) {
+    const parsed = pool.interface.parseLog(e);
+    if (parsed) {
+      insertions.push({
+        commitment: BigInt(parsed.args["outputCommitment1"].toString()),
+        block: e.blockNumber,
+        logIndex: e.index,
+      });
+      // Second output commitment is inserted after the first in the same tx
+      insertions.push({
+        commitment: BigInt(parsed.args["outputCommitment2"].toString()),
+        block: e.blockNumber,
+        logIndex: e.index + 0.1,
+      });
+    }
+  }
+
+  for (const e of withdrawals) {
+    const parsed = pool.interface.parseLog(e);
+    if (parsed && BigInt(parsed.args["changeCommitment"].toString()) !== 0n) {
+      insertions.push({
+        commitment: BigInt(parsed.args["changeCommitment"].toString()),
+        block: e.blockNumber,
+        logIndex: e.index,
+      });
+    }
+  }
+
+  insertions.sort((a, b) => a.block - b.block || a.logIndex - b.logIndex);
+  tree.insertAll(insertions.map((i) => i.commitment));
+
+  return tree;
 }

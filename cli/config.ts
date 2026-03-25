@@ -13,8 +13,8 @@ export const CONFIDENTIAL_POOL_ABI = [
   "function nullifiers(uint256) view returns (bool)",
   "function commitments(uint256) view returns (bool)",
   "event Deposit(uint256 indexed commitment, uint32 leafIndex, uint256 amount, uint256 timestamp)",
-  "event Transfer(uint256 nullifier, uint256 outputCommitment1, uint256 outputCommitment2)",
-  "event Withdrawal(uint256 nullifier, uint256 amount, address recipient, uint256 changeCommitment)",
+  "event Transfer(uint256 indexed nullifier, uint256 outputCommitment1, uint256 outputCommitment2)",
+  "event Withdrawal(uint256 indexed nullifier, uint256 amount, address recipient, uint256 changeCommitment, address relayer, uint256 fee)",
 ] as const;
 
 export const STEALTH_REGISTRY_ABI = [

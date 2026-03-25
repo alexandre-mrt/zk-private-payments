@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useAccount,
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import { parseEther } from "viem";
+import { parseEther, parseEventLogs } from "viem";
 import {
   Card,
   CardHeader,
@@ -15,7 +15,14 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { loadKeypair, createNote, saveNote, type Note } from "@/lib/crypto";
+import {
+  loadKeypair,
+  createNote,
+  saveNote,
+  removeNote,
+  serializeNote,
+  type Note,
+} from "@/lib/crypto";
 import { POOL_ABI, getPoolAddress } from "@/lib/constants";
 
 type DepositState =
@@ -37,8 +44,37 @@ export function DepositCard() {
 
   const { writeContractAsync } = useWriteContract();
 
-  const { isLoading: isWaiting, isSuccess: isConfirmed } =
-    useWaitForTransactionReceipt({ hash: txHash });
+  const {
+    isLoading: isWaiting,
+    isSuccess: isConfirmed,
+    data: receipt,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+
+  // After confirmation: parse real leafIndex from the Deposit event and update the saved note
+  useEffect(() => {
+    if (!isConfirmed || !receipt || !note) return;
+
+    const logs = parseEventLogs({
+      abi: POOL_ABI,
+      eventName: "Deposit",
+      logs: receipt.logs,
+    });
+
+    if (logs.length === 0) return;
+
+    const realLeafIndex = Number(logs[0].args.leafIndex);
+    const updatedNoteString = serializeNote(
+      note.amount,
+      note.blinding,
+      note.spendingKey,
+      realLeafIndex,
+    );
+    const updatedNote: Note = { ...note, leafIndex: realLeafIndex, noteString: updatedNoteString };
+
+    removeNote(note.noteString);
+    saveNote(updatedNote);
+    setNote(updatedNote);
+  }, [isConfirmed, receipt, note]);
 
   const handleDeposit = async () => {
     if (!isConnected) {
@@ -65,14 +101,12 @@ export function DepositCard() {
       const amountWei = parseEther(amountInput);
       const amountBigInt = amountWei;
 
-      // Placeholder leafIndex — will be set by the contract event
-      // NIGHT-SHIFT-REVIEW: actual leafIndex comes from the Deposit event, this is a pre-generate placeholder
-      const placeholderLeafIndex = Date.now() % 1000000;
+      // leafIndex starts at 0 — will be updated from the Deposit event after confirmation
       const generatedNote = await createNote(
         amountBigInt,
         keypair.spendingKey,
         keypair.spendingPubX,
-        placeholderLeafIndex,
+        0,
       );
 
       setNote(generatedNote);
