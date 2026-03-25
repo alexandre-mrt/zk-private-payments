@@ -114,6 +114,28 @@ export const POOL_ABI = [
     stateMutability: "view",
   },
   {
+    type: "function",
+    name: "isSpent",
+    inputs: [{ name: "_nullifier", type: "uint256" }],
+    outputs: [{ type: "bool" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getPoolStats",
+    inputs: [],
+    outputs: [
+      { name: "_totalDeposited", type: "uint256" },
+      { name: "_totalWithdrawn", type: "uint256" },
+      { name: "_totalTransfers", type: "uint256" },
+      { name: "_depositCount", type: "uint256" },
+      { name: "_withdrawalCount", type: "uint256" },
+      { name: "_uniqueDepositors", type: "uint256" },
+      { name: "_poolBalance", type: "uint256" },
+    ],
+    stateMutability: "view",
+  },
+  {
     type: "event",
     name: "Deposit",
     inputs: [
