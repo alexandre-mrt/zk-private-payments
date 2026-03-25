@@ -10,6 +10,13 @@
 
 ## Open Problems
 
+### ASSUMPTION: DepositCooldownUpdated event never emitted
+- **File**: contracts/ConfidentialPool.sol:281 / test/events.test.ts
+- **What I needed**: Task spec requested testing "deposit cooldown update emits DepositCooldownUpdated" but `DepositCooldownUpdated` is declared at line 281 and never emitted anywhere in the contract. `setMinDepositAge` emits `MinDepositAgeUpdated` instead.
+- **What I did**: Tested `MinDepositAgeUpdated` from `setMinDepositAge`, which is the actual implemented event. Added inline comment in test. Test renamed to "deposit cooldown update emits MinDepositAgeUpdated".
+- **Confidence**: HIGH — verified by grep across the full contract
+- **User action needed**: Either remove the dead `DepositCooldownUpdated` event declaration or implement a `setDepositCooldown` function that emits it.
+
 ### ASSUMPTION: getAllCommitments insertion order for transfers/withdrawals
 - **File**: shared/indexer.ts (getAllCommitments)
 - **What I needed**: Transfer and Withdrawal events do not carry a leafIndex, so the exact insertion order within the same block is unknown from logs alone.
